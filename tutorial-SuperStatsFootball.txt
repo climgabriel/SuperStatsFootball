@@ -1036,3 +1036,7 @@ Turn on live loop (1s) and Supabase Realtime subscription in UI.
 Add admin-only RF/XGB + Debug tab.
 
 Deploy to VPS (GreenGeeks) with Docker + Nginx/Caddy.
+
+
+
+this is my website www.superstatsfootball.com and i have access to cpanel, to install apps, i have pro plan subscription on GreenGeeks.
