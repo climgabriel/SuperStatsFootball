@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import json
 
 from app.core.dependencies import get_db, get_current_active_user
@@ -9,18 +9,19 @@ from app.models.user import User
 from app.models.fixture import Fixture
 from app.models.prediction import Prediction
 from app.schemas.prediction import PredictionRequest, PredictionResponse
+from app.services.prediction_pipeline import PredictionPipeline
 
 router = APIRouter()
 
 
-@router.post("/calculate", response_model=PredictionResponse)
+@router.post("/calculate")
 async def calculate_prediction(
     prediction_request: PredictionRequest,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Calculate prediction for a fixture using specified model.
+    Calculate prediction for a fixture using all tier-appropriate models.
 
     Available models depend on user's subscription tier:
     - Free: poisson
@@ -29,13 +30,6 @@ async def calculate_prediction(
     - Premium: poisson, dixon_coles, elo, logistic
     - Ultimate: all models including random_forest, xgboost
     """
-    # Check if user has access to this model
-    if not check_model_access(current_user.tier, prediction_request.model_type):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Your {current_user.tier} tier does not have access to {prediction_request.model_type} model"
-        )
-
     # Check if fixture exists
     fixture = db.query(Fixture).filter(Fixture.id == prediction_request.fixture_id).first()
     if not fixture:
@@ -44,40 +38,31 @@ async def calculate_prediction(
             detail=f"Fixture {prediction_request.fixture_id} not found"
         )
 
-    # For now, return mock prediction
-    # TODO: Implement actual prediction models
-    mock_prediction_data = {
-        "home_win_prob": 0.45,
-        "draw_prob": 0.25,
-        "away_win_prob": 0.30,
-        "predicted_home_score": 1.8,
-        "predicted_away_score": 1.2,
-        "most_likely_score": "2-1",
-        "model_details": {
-            "model": prediction_request.model_type,
-            "note": "This is a mock prediction. Actual models will be implemented."
+    # Generate prediction using pipeline
+    try:
+        pipeline = PredictionPipeline(db)
+        prediction_data = pipeline.generate_prediction(
+            fixture_id=prediction_request.fixture_id,
+            user_tier=current_user.tier
+        )
+
+        # Store prediction in database
+        stored_prediction = pipeline.store_prediction(prediction_data, current_user.id)
+
+        return {
+            "id": stored_prediction.id,
+            "fixture_id": stored_prediction.fixture_id,
+            "user_id": stored_prediction.user_id,
+            "prediction_data": prediction_data,
+            "created_at": stored_prediction.created_at,
+            "message": f"Prediction generated using {len(prediction_data['models_used'])} models"
         }
-    }
 
-    # Save prediction
-    prediction = Prediction(
-        fixture_id=prediction_request.fixture_id,
-        user_id=current_user.id,
-        model_type=prediction_request.model_type,
-        prediction_data=json.dumps(mock_prediction_data),
-        confidence_score=0.75,
-        is_admin_model=prediction_request.model_type in ["random_forest", "xgboost"]
-    )
-
-    db.add(prediction)
-    db.commit()
-    db.refresh(prediction)
-
-    # Convert to response
-    response = PredictionResponse.model_validate(prediction)
-    response.prediction_data = mock_prediction_data
-
-    return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating prediction: {str(e)}"
+        )
 
 
 @router.get("/{fixture_id}", response_model=List[PredictionResponse])
@@ -128,3 +113,42 @@ async def get_user_predictions(
         responses.append(resp)
 
     return responses
+
+
+@router.get("/upcoming")
+async def get_upcoming_predictions(
+    league_id: Optional[int] = None,
+    days_ahead: int = 7,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate predictions for upcoming fixtures.
+
+    Query Parameters:
+    - league_id: Optional filter by specific league
+    - days_ahead: Number of days to look ahead (default: 7)
+
+    Returns predictions using all models available to user's tier.
+    """
+    try:
+        pipeline = PredictionPipeline(db)
+        predictions = pipeline.generate_predictions_for_upcoming(
+            league_id=league_id,
+            days_ahead=days_ahead,
+            user_tier=current_user.tier
+        )
+
+        return {
+            "count": len(predictions),
+            "days_ahead": days_ahead,
+            "league_id": league_id,
+            "user_tier": current_user.tier,
+            "predictions": predictions
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating upcoming predictions: {str(e)}"
+        )

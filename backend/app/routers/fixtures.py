@@ -7,6 +7,7 @@ from app.core.dependencies import get_db, get_current_active_user
 from app.models.fixture import Fixture, FixtureScore, FixtureStat
 from app.models.user import User
 from app.schemas.fixture import FixtureResponse, FixtureDetailResponse
+from app.core.leagues_config import get_leagues_for_tier
 
 router = APIRouter()
 
@@ -167,3 +168,83 @@ async def get_fixture_stats(
         "home_stats": home_stats,
         "away_stats": away_stats
     }
+
+
+@router.get("/accessible/me", response_model=List[FixtureResponse])
+async def get_accessible_fixtures(
+    season: Optional[int] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get fixtures from leagues accessible to the current user based on their tier.
+
+    Requires authentication. Filters fixtures by user's subscription tier:
+    - Free: Only fixtures from 3 leagues
+    - Starter: Fixtures from 10 leagues
+    - Pro: Fixtures from 25 leagues
+    - Premium: Fixtures from 50+ leagues
+    - Ultimate: Fixtures from all 150+ leagues
+    """
+    # Get league IDs accessible to user's tier
+    accessible_league_ids = get_leagues_for_tier(current_user.tier)
+
+    # Build query with tier-based filtering
+    query = db.query(Fixture).filter(
+        Fixture.league_id.in_(accessible_league_ids)
+    )
+
+    if season:
+        query = query.filter(Fixture.season == season)
+
+    if date_from:
+        query = query.filter(Fixture.match_date >= datetime.fromisoformat(date_from))
+
+    if date_to:
+        query = query.filter(Fixture.match_date <= datetime.fromisoformat(date_to))
+
+    if status:
+        query = query.filter(Fixture.status == status)
+
+    query = query.order_by(Fixture.match_date.desc())
+    fixtures = query.offset(offset).limit(limit).all()
+
+    return fixtures
+
+
+@router.get("/accessible/upcoming", response_model=List[FixtureResponse])
+async def get_accessible_upcoming_fixtures(
+    days_ahead: int = Query(7, ge=1, le=30),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get upcoming fixtures from leagues accessible to the current user.
+
+    Requires authentication. Returns only fixtures from leagues accessible based on tier.
+    """
+    from datetime import timedelta
+
+    # Get league IDs accessible to user's tier
+    accessible_league_ids = get_leagues_for_tier(current_user.tier)
+
+    end_date = datetime.utcnow() + timedelta(days=days_ahead)
+
+    # Build query with tier-based filtering
+    query = db.query(Fixture).filter(
+        Fixture.league_id.in_(accessible_league_ids),
+        Fixture.status == "NS",
+        Fixture.match_date >= datetime.utcnow(),
+        Fixture.match_date <= end_date
+    )
+
+    query = query.order_by(Fixture.match_date)
+    fixtures = query.limit(limit).all()
+
+    return fixtures
