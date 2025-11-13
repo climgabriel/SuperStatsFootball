@@ -1,21 +1,21 @@
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import hashlib
 from fastapi import HTTPException, status
 from .config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    password_hash = hashlib.sha256((plain_password + settings.SECRET_KEY).encode()).hexdigest()
+    return password_hash == hashed_password
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password."""
-    return pwd_context.hash(password)
+    # Simple hash for development - use bcrypt/argon2 in production
+    return hashlib.sha256((password + settings.SECRET_KEY).encode()).hexdigest()
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:

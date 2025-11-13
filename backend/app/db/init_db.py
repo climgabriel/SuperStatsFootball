@@ -44,7 +44,7 @@ def seed_initial_data(db: Session) -> None:
             # Create admin user
             admin_user = User(
                 email=admin_email,
-                password_hash=get_password_hash("admin123"),  # Change in production!
+                password_hash=get_password_hash("Admin123!"),  # Change in production!
                 full_name="Admin User",
                 tier="ultimate",
                 subscription_status="active"
