@@ -1,14 +1,10 @@
-================================================================================
     SUPERSTATS FOOTBALL - COMPLETE BUILD GUIDE (HIGH-PERFORMANCE CLONE)
-================================================================================
 
 🎯 GOAL: Build a production-ready clone of www.superstatsfootball.com
 📅 Target: Windows + Docker deployment to GreenGeeks
 ⚡ Performance: Real-time stats, optimized queries, scalable architecture
 
-================================================================================
 TABLE OF CONTENTS
-================================================================================
 
 PART 1: ARCHITECTURE & PLANNING
   1.1 System Architecture Overview
@@ -93,9 +89,7 @@ PART 12: MONITORING & MAINTENANCE
   12.4 Database Maintenance
   12.5 Backup & Recovery
 
-================================================================================
 PART 1: ARCHITECTURE & PLANNING
-================================================================================
 
 1.1 SYSTEM ARCHITECTURE OVERVIEW
 ────────────────────────────────────────────────────────────────────────────
@@ -679,9 +673,7 @@ ULTIMATE:
   - ALL leagues supported by API-Football
 
 
-================================================================================
 PART 2: ENVIRONMENT SETUP
-================================================================================
 
 2.1 WINDOWS PREREQUISITES
 ────────────────────────────────────────────────────────────────────────────
@@ -955,9 +947,7 @@ SENTRY_DSN=
 ```
 
 
-================================================================================
 PART 3: BACKEND DEVELOPMENT (FASTAPI)
-================================================================================
 
 3.1 PROJECT STRUCTURE
 ────────────────────────────────────────────────────────────────────────────
@@ -1632,9 +1622,7 @@ class FixtureScore(Base):
 ```
 
 
-================================================================================
 PART 4: APIFOOTBALL INTEGRATION
-================================================================================
 
 4.1 API-FOOTBALL ACCOUNT SETUP
 ────────────────────────────────────────────────────────────────────────────
@@ -2102,3 +2090,1045 @@ Remaining sections (Parts 5-12) will include:
 - And more...
 
 This is a production-grade foundation. Each subsequent section builds upon this base.
+awesome — here’s your from-scratch, end-to-end, step-by-step build guide for a high-performance clone of www.superstatsfootball.com
+ on Windows + Docker, with:
+
+Python (FastAPI) backend
+
+APIFootball ingestion (historical, fixtures, 1-second live stats)
+
+Supabase (PostgreSQL, Realtime, RLS)
+
+Rules/statistics models for users (Poisson, Dixon-Coles, Elo, Logistic Regression)
+
+ML models for admin (RandomForest, XGBoost)
+
+React + Tailwind UI matching your layout, with Settings, filters, Clear/Reset
+
+Tiered access (Free + 4 plans) with league coverage
+
+“Only next round” fixture display
+
+Admin debug panel
+
+Deployment to GreenGeeks with Docker
+
+0) Prereqs (Windows)
+
+Install:
+
+Docker Desktop (WSL2 enabled)
+
+Node.js 18+ (for React build)
+
+Git
+
+Create Supabase project (Enterprise). Grab:
+
+SUPABASE_DB_URL (Postgres connection string)
+
+SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY
+
+Get your APIFootball API key.
+
+1) Monorepo layout
+superstatsfootball/
+  .env/                      # never commit, store runtime secrets here
+    backend.env
+    frontend.env
+  docker/
+    nginx/
+      nginx.conf
+  packages/
+    backend/
+      app/
+        api/                # FastAPI routers
+        core/               # domain logic (ratings/models)
+        data/               # db access, ETL, schemas
+        jobs/               # schedulers (live polling, rollups)
+        models/             # ML artifacts, model registry
+        services/           # apifootball client, caching, auth
+        utils/
+        main.py
+      requirements.txt
+      Dockerfile
+    frontend/
+      src/
+        components/
+        pages/
+        store/
+        utils/
+      index.html
+      package.json
+      vite.config.ts
+      tailwind.config.js
+      postcss.config.js
+      Dockerfile
+  supabase/
+    001_schema.sql
+    002_rls.sql
+    003_seed_plans.sql
+    004_functions.sql
+  docker-compose.yml
+  README.md
+
+2) Supabase schema (PostgreSQL + RLS)
+2.1 Tables
+
+Create with psql or Supabase SQL editor.
+
+-- plans (Free + 4 paid)
+CREATE TABLE plan (
+  plan_id text PRIMARY KEY,          -- 'free','starter','analyst','pro','elite'
+  name text NOT NULL,
+  rank int NOT NULL                  -- 0..4
+);
+
+-- leagues (normalized)
+CREATE TABLE league (
+  league_id bigint PRIMARY KEY,
+  country text NOT NULL,
+  name text NOT NULL,
+  -- optional meta fields...
+  UNIQUE(country, name)
+);
+
+-- plan-league coverage
+CREATE TABLE plan_league_access (
+  plan_id text REFERENCES plan(plan_id) ON DELETE CASCADE,
+  league_id bigint REFERENCES league(league_id) ON DELETE CASCADE,
+  PRIMARY KEY (plan_id, league_id)
+);
+
+-- seasons (label like '2020/2021')
+CREATE TABLE season (
+  season_id text PRIMARY KEY,
+  from_year int NOT NULL,
+  to_year int NOT NULL
+);
+
+-- teams
+CREATE TABLE team (
+  team_id bigint PRIMARY KEY,
+  name text NOT NULL,
+  country text
+);
+
+-- matches (finished and fixtures unified; finished=1 when final)
+CREATE TABLE match (
+  match_id bigint PRIMARY KEY,
+  league_id bigint REFERENCES league(league_id),
+  season_id text REFERENCES season(season_id),
+  date_utc timestamptz NOT NULL,
+  round text,                         -- used for "next round"
+  home_id bigint REFERENCES team(team_id),
+  away_id bigint REFERENCES team(team_id),
+  ft_home int, ft_away int,           -- null for upcoming
+  ht_home int, ht_away int,
+  finished boolean DEFAULT false,
+  live boolean DEFAULT false,
+  UNIQUE(league_id, date_utc, home_id, away_id)
+);
+
+-- per-match stats (atomic, extensible)
+CREATE TABLE match_stat (
+  match_id bigint REFERENCES match(match_id) ON DELETE CASCADE,
+  stat text,                          -- 'shots_on','shots_off','possession','corners','yellows','reds','offsides',...
+  home numeric,                       -- can be fractional if xG
+  away numeric,
+  updated_at timestamptz DEFAULT now(),
+  PRIMARY KEY (match_id, stat)
+);
+
+-- predictions (per model, per market)
+CREATE TABLE prediction (
+  match_id bigint REFERENCES match(match_id) ON DELETE CASCADE,
+  model text,             -- 'poisson','dixon_coles','elo','logreg','rf','xgb'
+  version text,           -- 'v1.0.0', hash of params
+  market text,            -- '1X2','OU25','BTTS','corners','cards',...
+  selection text,         -- 'H','D','A' or 'Over','Under'
+  prob numeric,           -- 0..1
+  xg_home numeric, xg_away numeric,
+  ci_low numeric, ci_high numeric,    -- confidence interval for prob (optional)
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (match_id, model, version, market, selection)
+);
+
+-- users / profiles (Supabase auth maps to this row)
+CREATE TABLE profile (
+  user_id uuid PRIMARY KEY,           -- equals auth.uid()
+  email text UNIQUE,
+  plan_id text REFERENCES plan(plan_id) DEFAULT 'free',
+  is_admin boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+2.2 Import league coverage
+
+Convert your League_coverage_by_plan.csv into rows of (plan_id, league_id). One-off import:
+
+-- seed plans
+INSERT INTO plan(plan_id,name,rank) VALUES
+ ('free','Free',0),('starter','Starter',1),('analyst','Analyst',2),
+ ('pro','Pro',3),('elite','Elite',4)
+ON CONFLICT DO NOTHING;
+
+
+Then bulk import access with a CSV loader (psql \copy) or Supabase UI. Example:
+
+\copy plan_league_access(plan_id, league_id) FROM 'League_coverage_by_plan.csv' CSV HEADER;
+
+2.3 RLS (Row-Level Security)
+
+Enable and add policies.
+
+-- Enable RLS
+ALTER TABLE league ENABLE ROW LEVEL SECURITY;
+ALTER TABLE match ENABLE ROW LEVEL SECURITY;
+ALTER TABLE match_stat ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prediction ENABLE ROW LEVEL SECURITY;
+
+-- Helper view to get current user's plan
+CREATE VIEW current_user_plan AS
+  SELECT p.user_id, p.plan_id, p.is_admin
+  FROM profile p
+  WHERE p.user_id = auth.uid();
+
+-- Only leagues accessible by plan
+CREATE POLICY league_by_plan ON league
+FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM current_user_plan cup
+    JOIN plan_league_access pla ON pla.plan_id = cup.plan_id
+    WHERE pla.league_id = league.league_id
+  )
+  OR EXISTS (SELECT 1 FROM current_user_plan cup WHERE cup.is_admin)
+);
+
+-- Matches restricted by league coverage
+CREATE POLICY match_by_plan ON match
+FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM current_user_plan cup
+    JOIN plan_league_access pla ON pla.plan_id = cup.plan_id
+    WHERE pla.league_id = match.league_id
+  )
+  OR EXISTS (SELECT 1 FROM current_user_plan cup WHERE cup.is_admin)
+);
+
+-- Stats & predictions follow matches
+CREATE POLICY stat_by_plan ON match_stat
+FOR SELECT USING (
+  EXISTS (SELECT 1 FROM match m WHERE m.match_id = match_stat.match_id)
+);
+
+CREATE POLICY prediction_by_plan ON prediction
+FOR SELECT USING (
+  EXISTS (SELECT 1 FROM match m WHERE m.match_id = prediction.match_id)
+);
+
+
+For “column-level” limits per tier, put restricted fields (e.g., xG) in a separate table with stricter RLS, or expose via views that hide columns for non-eligible plans.
+
+2.4 Season retention (current + last 4)
+
+Create a function and call daily:
+
+CREATE OR REPLACE FUNCTION prune_old_seasons()
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  keep text[];
+BEGIN
+  -- compute the 5 most recent season_ids
+  SELECT ARRAY(
+    SELECT season_id FROM season ORDER BY to_year DESC LIMIT 5
+  ) INTO keep;
+  -- delete older
+  DELETE FROM match WHERE season_id NOT IN (SELECT unnest(keep));
+  DELETE FROM match_stat WHERE match_id NOT IN (SELECT match_id FROM match);
+  DELETE FROM prediction WHERE match_id NOT IN (SELECT match_id FROM match);
+END$$;
+
+
+Schedule by calling this from backend daily (see §5).
+
+3) Backend (FastAPI, Docker, Python)
+3.1 Dockerfile & requirements
+
+packages/backend/requirements.txt
+
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+httpx==0.27.*
+pydantic==2.*
+psycopg[binary]==3.2.*
+sqlalchemy==2.0.*
+alembic==1.13.*
+numpy==2.*
+pandas==2.*
+scikit-learn==1.5.*
+xgboost==2.1.*
+orjson==3.*
+python-dotenv==1.0.*
+
+
+packages/backend/Dockerfile
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app ./app
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host","0.0.0.0","--port","8000","--workers","2"]
+
+3.2 .env (runtime)
+
+.env/backend.env (example)
+
+API_FOOTBALL_KEY=your_key_here
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:PORT/dbname
+SUPABASE_ANON=...
+SUPABASE_SERVICE=...
+LIVE_POLL_INTERVAL_MS=1000
+HOME_ELO_BONUS=100
+ELO_K=20
+
+3.3 Database access (SQLAlchemy)
+
+app/data/db.py
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+import os
+
+engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+def get_db():
+    db = SessionLocal()
+    try: yield db
+    finally: db.close()
+
+3.4 APIFootball client
+
+app/services/apifootball.py
+
+import httpx, os, asyncio
+
+API = "https://apiv3.apifootball.com/"
+KEY = os.environ["API_FOOTBALL_KEY"]
+
+async def get_events(from_date, to_date, league_id=None, live=False):
+    params = {
+      "action":"get_events",
+      "from":from_date, "to":to_date,
+      "APIkey": KEY
+    }
+    if league_id: params["league_id"] = league_id
+    if live: params["match_live"] = 1
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(API, params=params)
+        r.raise_for_status()
+        return r.json()
+
+async def get_statistics(match_id: int):
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(API, params={"action":"get_statistics","match_id":match_id,"APIkey":KEY})
+        r.raise_for_status()
+        return r.json()
+
+3.5 ETL (historical & fixtures)
+
+app/jobs/etl.py
+
+from .apifootball import get_events, get_statistics
+from sqlalchemy import insert
+from ..data.db import get_db
+from datetime import date, timedelta
+import asyncio
+
+async def load_season(league_id: int, season_from: str, season_to: str):
+    # fetch in windows if needed
+    events = await get_events(season_from, season_to, league_id=league_id)
+    # map into tables (league, team, match)
+    # upsert league/teams; insert matches; stats later
+    ...
+
+async def refresh_fixtures(league_ids: list[int], days_ahead: int = 7):
+    today = date.today()
+    events = []
+    for lid in league_ids:
+        ev = await get_events(today.isoformat(), (today+timedelta(days=days_ahead)).isoformat(), league_id=lid)
+        events.extend(ev)
+    # Upsert matches with finished=false, live=false
+    ...
+
+async def backfill_stats_for_finished(match_ids: list[int]):
+    for mid in match_ids:
+        stats = await get_statistics(mid)
+        # upsert into match_stat rows
+        ...
+
+3.6 Live engine (1-second polling)
+
+app/jobs/live.py
+
+import os, asyncio
+from .apifootball import get_events, get_statistics
+from ..data.db import get_db
+from sqlalchemy import update
+
+INTERVAL = int(os.getenv("LIVE_POLL_INTERVAL_MS","1000"))
+
+async def live_loop():
+    while True:
+        try:
+            live = await get_events(from_date="2025-01-01", to_date="2025-12-31", live=True)
+            # update match scores, time, live flag, stats
+            # minimal writes (only changed fields); commit batched
+            ...
+        except Exception as e:
+            # log
+            ...
+        await asyncio.sleep(INTERVAL/1000)
+
+
+Hook it on startup:
+
+app/main.py
+
+from fastapi import FastAPI
+import asyncio
+from .jobs.live import live_loop
+
+app = FastAPI(title="SuperStatsFootball API")
+
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(live_loop())
+
+
+If you prefer: run live_loop() in a dedicated worker container so the API workers remain lean.
+
+3.7 Prediction models (users vs admin)
+Poisson (goals baseline)
+
+app/core/models/poisson.py
+
+import numpy as np
+from math import exp, factorial
+
+def team_strengths(matches):
+    # compute attack/defense strengths per team (home/away split), league avg, time decay
+    ...
+
+def poisson_pmf(k, lam): return exp(-lam) * (lam**k) / factorial(k)
+
+def outcome_probs(lh, la, maxg=10):
+    # bivariate independent Poisson for score grid
+    pH=pD=pA=0.0
+    for x in range(maxg+1):
+        px = poisson_pmf(x, lh)
+        for y in range(maxg+1):
+            py = poisson_pmf(y, la)
+            if x>y: pH += px*py
+            elif x==y: pD += px*py
+            else: pA += px*py
+    return pH, pD, pA
+
+Dixon–Coles correction
+
+app/core/models/dixon_coles.py
+
+from .poisson import poisson_pmf
+
+def dc_adjustment(x,y,lam,mu,rho):
+    if x==0 and y==0: return 1 - lam*mu*rho
+    if x==0 and y==1: return 1 + lam*rho
+    if x==1 and y==0: return 1 + mu*rho
+    if x==1 and y==1: return 1 - rho
+    return 1.0
+
+def outcome_probs_dc(lh, la, rho, maxg=10):
+    pH=pD=pA=0.0
+    for x in range(maxg+1):
+        px = poisson_pmf(x, lh)
+        for y in range(maxg+1):
+            py = poisson_pmf(y, la)
+            adj = dc_adjustment(x,y,lh,la,rho)
+            p = px*py*adj
+            if x>y: pH+=p
+            elif x==y: pD+=p
+            else: pA+=p
+    # normalize small drift
+    s = pH+pD+pA
+    return pH/s, pD/s, pA/s
+
+
+Fit rho and strengths by maximizing (weighted) likelihood with exponential time decay. Cache by league.
+
+Elo
+
+app/core/models/elo.py
+
+HOME_BONUS = 100
+K = 20
+
+def win_prob(Rh, Ra, home=True):
+    Rh_adj = Rh + (HOME_BONUS if home else 0)
+    return 1 / (1 + 10 ** ((Ra - Rh_adj)/400))
+
+def update(Rh, Ra, result):  # result: 1=home win, 0.5=draw, 0=away win
+    pH = win_prob(Rh, Ra, home=True)
+    expected = 1*pH + 0.5*(1 - pH - pH)  # simple; or handle draw explicitly
+    d = K * (result - expected)
+    return Rh + d, Ra - d
+
+
+Maintain Elo per team by league; recompute predictions via win_prob.
+
+Logistic Regression (multinomial)
+
+app/core/models/logreg.py
+
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+
+class Logit1X2:
+    def __init__(self):
+        self.model = LogisticRegression(multi_class='multinomial', max_iter=1000)
+
+    def fit(self, X, y): self.model.fit(X,y)
+    def predict_proba(self, X): return self.model.predict_proba(X)
+    def feature_importance(self): return self.model.coef_
+
+
+Features: Elo diff, last-N form, avg goals for/against, xG (if available), home flag, etc.
+
+RandomForest / XGBoost (admin)
+
+app/core/models/ensemble.py
+
+from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
+import numpy as np
+
+class RF1X2:
+    def __init__(self, **kw): self.clf = RandomForestClassifier(n_estimators=600, max_depth=None, **kw)
+    def fit(self,X,y): self.clf.fit(X,y)
+    def predict_proba(self,X): return self.clf.predict_proba(X)
+
+class XGB1X2:
+    def __init__(self, **kw): self.clf = xgb.XGBClassifier(
+        n_estimators=800, learning_rate=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.9, tree_method="hist", **kw)
+    def fit(self,X,y): self.clf.fit(X,y, eval_metric="mlogloss")
+    def predict_proba(self,X): return self.clf.predict_proba(X)
+
+Prediction service & confidence intervals
+
+app/core/predict.py
+
+import numpy as np
+from scipy.stats import binom
+
+def ci_wilson(p, n, z=1.96):
+    denom = 1 + z*z/n
+    centre = p + z*z/(2*n)
+    pm = z * ((p*(1-p) + z*z/(4*n))/n)**0.5
+    return max(0,(centre-pm)/denom), min(1,(centre+pm)/denom)
+
+def predict_match(match, model, training_data):
+    # compute probs per selected model
+    if model=="poisson": ...
+    elif model=="dixon_coles": ...
+    elif model=="elo": ...
+    elif model=="logreg": ...
+    elif model=="rf": ...
+    elif model=="xgb": ...
+    # compute CI using sample size n from training_data size
+    n = len(training_data)
+    pH,pD,pA = ...
+    ciH = ci_wilson(pH, n)
+    return dict(H=pH, D=pD, A=pA, ciH=ciH, xg_home=..., xg_away=...)
+
+API endpoints
+
+app/api/routes.py
+
+from fastapi import APIRouter, Depends
+from ..data.db import get_db
+
+router = APIRouter(prefix="/api")
+
+@router.post("/ingest/historical")
+async def ingest_historical(body: dict, db=Depends(get_db)):
+    # loop seasons & leagues, call load_season
+    ...
+
+@router.post("/ingest/fixtures")
+async def ingest_fixtures(body: dict, db=Depends(get_db)):
+    ...
+
+@router.post("/predictions")
+async def predictions(body: dict, db=Depends(get_db)):
+    """
+    body = { leagues:[...], seasons:[...], model:"poisson" | "elo" | ..., round:"next" }
+    """
+    # fetch upcoming matches for rounds (see §4.3)
+    # load training data with filters -> compute predictions -> write to prediction table and return
+    ...
+
+@router.post("/admin/retrain")
+async def admin_retrain(body: dict, db=Depends(get_db)):
+    # train or refresh ML models; gated by admin token
+    ...
+
+@router.post("/admin/toggle-debug")
+async def toggle_debug():
+    ...
+
+
+Register routes in main.py.
+
+4) Logic details & data rules
+4.1 “Only next round” fixtures
+
+For each league, determine next round:
+
+If API provides match_round like “Round 12”, compute the minimum future round and select those matches.
+
+If no round, take earliest future date per league and select matches for that date.
+
+SQL helper view:
+
+CREATE VIEW next_round_matches AS
+SELECT m.*
+FROM match m
+JOIN (
+  SELECT league_id,
+         MIN(date_utc::date) AS d
+  FROM match
+  WHERE finished = false
+  GROUP BY league_id
+) x ON x.league_id = m.league_id AND m.date_utc::date = x.d
+WHERE m.finished = false;
+
+
+The API can query this view (RLS still applies).
+
+4.2 Settings → recompute
+
+Frontend sends selected countries/leagues, seasons, model.
+
+Backend pulls training subset (only those seasons) and upcoming matches for selected leagues.
+
+Compute predictions and upsert into prediction with model,version keyed.
+
+Return predictions for immediate render.
+
+4.3 Tier gating
+
+RLS ensures users cannot fetch leagues outside their plan.
+
+Frontend additionally hides locked tabs/columns and shows “upgrade” locks.
+
+Admin sees all tabs plus Debug.
+
+5) Jobs & housekeeping
+
+Historical load: one-off: loop last 4 seasons + current for target leagues.
+
+Daily refresh: fixtures (+7 days), results from yesterday, stats for finished; call prune_old_seasons().
+
+Live loop: every 1s, update live scores/stats.
+
+Model refresh: nightly, refit DC, LogReg; store model version hash (params) in a small model_registry table.
+
+You can run jobs:
+
+as background tasks in backend container, or
+
+as a dedicated worker service in docker-compose.
+
+6) Frontend (React + Tailwind)
+6.1 Bootstrap
+cd packages/frontend
+npm create vite@latest . -- --template react-ts
+npm i @supabase/supabase-js axios clsx jotai
+npm i -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+
+
+tailwind.config.js
+
+export default {
+  content: ["./index.html","./src/**/*.{ts,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
+}
+
+
+src/index.css add @tailwind base; @tailwind components; @tailwind utilities;
+
+6.2 Supabase client
+
+src/utils/supa.ts
+
+import { createClient } from '@supabase/supabase-js'
+export const supa = createClient(
+  import.meta.env.VITE_SUPABASE_URL!,
+  import.meta.env.VITE_SUPABASE_ANON!
+)
+
+6.3 App skeleton (tabs + settings)
+
+src/pages/App.tsx
+
+import { useState } from "react"
+import SettingsPanel from "../components/SettingsPanel"
+import Tab1X2 from "../components/tabs/Tab1X2"
+import TabGoals from "../components/tabs/TabGoals"
+import AdminDebug from "../components/AdminDebug"
+
+export default function App(){
+  const [active, setActive] = useState<"settings"|"1x2"|"goals"|"corners"|"cards">("settings")
+  const [model, setModel] = useState<"poisson"|"dixon_coles"|"elo"|"logreg"|"rf"|"xgb">("poisson")
+  const [filters, setFilters] = useState({ countries:[], leagues:[], seasons:[] })
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="p-4 flex items-center justify-between border-b border-slate-800">
+        <h1 className="text-xl font-bold">SuperStatsFootball</h1>
+        <nav className="flex gap-2">
+          {["settings","1x2","goals","corners","cards"].map(t => (
+            <button key={t} onClick={()=>setActive(t as any)}
+              className={`px-3 py-1 rounded ${active===t?'bg-emerald-600':'bg-slate-800 hover:bg-slate-700'}`}>
+              {t.toUpperCase()}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="p-4">
+        {active==="settings" && <SettingsPanel model={model} setModel={setModel} filters={filters} setFilters={setFilters} />}
+        {active==="1x2" && <Tab1X2 model={model} filters={filters} />}
+        {active==="goals" && <TabGoals model={model} filters={filters} />}
+        {/* add Corners/Cards tabs similarly */}
+        <AdminDebug />
+      </main>
+    </div>
+  )
+}
+
+6.4 Settings panel (with Clear)
+
+src/components/SettingsPanel.tsx
+
+import { useState } from "react"
+import axios from "axios"
+
+export default function SettingsPanel({model,setModel,filters,setFilters}:{model:any,setModel:any,filters:any,setFilters:any}){
+  const [busy,setBusy] = useState(false)
+
+  async function apply(){
+    setBusy(true)
+    await axios.post("/api/predictions", {
+      model,
+      leagues: filters.leagues,
+      seasons: filters.seasons
+    })
+    setBusy(false)
+  }
+  function clearAll(){
+    setFilters({countries:[], leagues:[], seasons:[]})
+    setModel("poisson")
+  }
+  return (
+    <div className="grid md:grid-cols-3 gap-4">
+      <section className="p-3 bg-slate-900 rounded">
+        <h2 className="font-semibold mb-2">Model</h2>
+        <select className="w-full bg-slate-800 p-2 rounded" value={model} onChange={e=>setModel(e.target.value as any)}>
+          <option value="poisson">Poisson</option>
+          <option value="dixon_coles">Dixon-Coles</option>
+          <option value="elo">Elo</option>
+          <option value="logreg">Logistic Regression</option>
+          <option value="rf">Random Forest (admin)</option>
+          <option value="xgb">XGBoost (admin)</option>
+        </select>
+      </section>
+      <section className="p-3 bg-slate-900 rounded md:col-span-2">
+        <h2 className="font-semibold mb-2">Filters</h2>
+        {/* render checkboxes from API: countries/leagues; seasons */}
+        {/* ... */}
+      </section>
+      <div className="md:col-span-3 flex gap-2">
+        <button onClick={apply} disabled={busy} className="px-4 py-2 bg-emerald-600 rounded">{busy?'Analyzing…':'Analyze'}</button>
+        <button onClick={clearAll} className="px-4 py-2 bg-slate-700 rounded">Clear</button>
+      </div>
+    </div>
+  )
+}
+
+6.5 1X2 tab (pull predictions)
+
+src/components/tabs/Tab1X2.tsx
+
+import { useEffect, useState } from "react"
+import axios from "axios"
+
+export default function Tab1X2({model,filters}:{model:string,filters:any}){
+  const [rows,setRows] = useState<any[]>([])
+  useEffect(()=>{
+    let cancelled=false
+    ;(async()=>{
+      const {data} = await axios.post("/api/predictions", {
+        model, leagues: filters.leagues, seasons: filters.seasons
+      })
+      if(!cancelled) setRows(data.rows)
+    })()
+    return ()=>{cancelled=true}
+  },[model, JSON.stringify(filters)])
+  return (
+    <div className="overflow-auto">
+      <table className="min-w-[900px] w-full text-sm">
+        <thead className="bg-slate-900">
+          <tr>
+            <th className="p-2">League</th>
+            <th>Kickoff</th><th>Home</th><th>Away</th>
+            <th>H%</th><th>D%</th><th>A%</th>
+            <th>xG(H)</th><th>xG(A)</th>
+            <th>CI(H)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r,i)=>(
+            <tr key={i} className="border-b border-slate-800">
+              <td className="p-2">{r.league_name}</td>
+              <td>{new Date(r.date_utc).toLocaleString()}</td>
+              <td>{r.home}</td><td>{r.away}</td>
+              <td>{(r.prob.H*100).toFixed(1)}</td>
+              <td>{(r.prob.D*100).toFixed(1)}</td>
+              <td>{(r.prob.A*100).toFixed(1)}</td>
+              <td>{r.xg_home.toFixed(2)}</td>
+              <td>{r.xg_away.toFixed(2)}</td>
+              <td>{(r.ciH[0]*100).toFixed(0)}–{(r.ciH[1]*100).toFixed(0)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+6.6 Realtime live updates (scores/stats)
+
+Subscribe to changes:
+
+import { useEffect } from "react"
+import { supa } from "../../utils/supa"
+
+useEffect(()=>{
+  const sub = supa.channel("schema-db-changes")
+    .on("postgres_changes", {event:"UPDATE", schema:"public", table:"match"}, (payload)=>{
+      // merge live score/time into UI state
+    })
+    .subscribe()
+  return ()=>{supa.removeChannel(sub)}
+},[])
+
+7) Metrics & transparency
+
+Add an Evaluation endpoint to compute Brier and LogLoss over a backtest window; display summary in admin Debug tab.
+
+import numpy as np
+
+def brier(y_onehot, p):      # y_onehot: [0,0,1] true class
+    return np.mean(np.sum((p - y_onehot)**2, axis=1))
+
+def logloss(y_idx, p, eps=1e-12):
+    return -np.mean(np.log(np.take_along_axis(p, y_idx[:,None], axis=1).clip(eps)))
+
+
+Expose /admin/evaluate?model=...&from=...&to=....
+
+8) Docker Compose
+
+docker-compose.yml
+
+version: "3.9"
+services:
+  backend:
+    build: ./packages/backend
+    env_file: ./.env/backend.env
+    ports: ["8000:8000"]
+    restart: unless-stopped
+
+  frontend:
+    build: ./packages/frontend
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON=${VITE_SUPABASE_ANON}
+    ports: ["5173:5173"]
+    command: ["npm","run","dev"]  # for local; production uses nginx
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on: [backend]
+
+
+Production: build frontend and serve static via Nginx; proxy /api to backend.
+
+docker/nginx/nginx.conf
+
+events {}
+http {
+  server {
+    listen 80;
+    server_name _;
+    location / {
+      root /usr/share/nginx/html;
+      try_files $uri /index.html;
+    }
+    location /api/ {
+      proxy_pass http://backend:8000/api/;
+    }
+  }
+}
+
+
+Build production frontend image with npm run build and copy dist/ into nginx image or use a multi-stage Dockerfile for frontend.
+
+9) Deployment to GreenGeeks
+
+Best path: a VPS plan (SSH + Docker). Steps:
+
+Push images to Docker Hub (or GHCR).
+
+docker build -t youruser/ssf-backend:1.0 ./packages/backend
+docker push youruser/ssf-backend:1.0
+# build frontend nginx image that serves built /dist and proxies /api to backend host
+
+
+On GreenGeeks VPS:
+
+Install Docker & docker-compose.
+
+Pull images: docker pull youruser/ssf-backend:1.0 and your frontend image.
+
+Create a production docker-compose.yml with Nginx reverse-proxy (80/443), backend, and optional Certbot or use Caddy for auto-SSL.
+
+Domain: Point A record to server IP. Issue Let’s Encrypt (Caddy makes this trivial).
+
+Set environment vars with secure secrets (.env files) and restart: unless-stopped.
+
+Migrations: run schema SQL via Supabase SQL editor. Seed plans and coverage CSV.
+
+Smoke test: API /api/predictions returns data; UI loads at domain.
+
+If you must use shared hosting (cPanel): container support is limited; deploy backend separately (small VPS), point front-end at that API URL, and host static site at GreenGeeks. SSL terminate at CDN/Cloudflare if desired.
+
+10) Admin vs Regular user (what changes)
+
+Regular user:
+
+Can select models: Poisson, Dixon-Coles, Elo, Logistic Regression.
+
+Limited leagues/tabs/columns by plan (RLS + UI gating).
+
+No Debug tab.
+
+Admin:
+
+Sees all leagues & tabs.
+
+Extra models: RandomForest, XGBoost.
+
+Admin Debug: toggle live logs, view raw model features, run /admin/retrain, backtests, feature importances/coefficients.
+
+Can switch models on the fly and view explainability (coefficients for LogReg, feature importance/SHAP for RF/XGB, DC rho, Elo ratings).
+
+11) “Next Round” UX and Clear button
+
+The Settings tab controls:
+
+Checkboxes for countries → leagues, seasons
+
+Model selector
+
+Analyze triggers /api/predictions recompute
+
+Clear resets selections & model, clears cached predictions in UI (server keeps previous prediction rows but UI ignores)
+
+Upcoming view shows (by country → league):
+
+Only next round matches (via view/endpoint)
+
+Probabilities, xG, confidence intervals; live badge for in-play
+
+12) Testing & quality gates
+
+Unit tests: Poisson/DC, Elo updates, LogReg inference
+
+Integration: ETL from API → DB, predictions round-trip
+
+Backtests: at least last 2 seasons per major league; report Brier & LogLoss
+
+Calibration: reliability diagrams; optional isotonic/Platt scaling for ML
+
+Performance: cache training artifacts per league + model; vectorize Poisson grids; guard live loop minimal writes
+
+Quick commands
+
+Local dev
+
+docker compose up --build
+# frontend at http://localhost:5173
+# backend  at http://localhost:8000/docs
+
+
+Seed Supabase
+
+Run supabase/001_schema.sql, 002_rls.sql, 003_seed_plans.sql
+
+Import League_coverage_by_plan.csv into plan_league_access
+
+Initial ingest
+
+POST /api/ingest/historical with {leagues:[...], seasons:["2020/2021",...,"2024/2025"]}
+
+POST /api/ingest/fixtures with {leagues:[...], days_ahead:7}
+
+Predictions
+
+POST /api/predictions with {"model":"poisson","leagues":[...],"seasons":["2023/2024","2024/2025"]}
+
+What to do next (fastest path to first result)
+
+Stand up Supabase schema + RLS, seed plans and coverage.
+
+Run backend & implement Poisson and Elo first.
+
+Build Settings + 1X2 tab; wire /api/predictions.
+
+Add Dixon-Coles + Logistic Regression.
+
+Turn on live loop (1s) and Supabase Realtime subscription in UI.
+
+Add admin-only RF/XGB + Debug tab.
+
+Deploy to VPS (GreenGeeks) with Docker + Nginx/Caddy.
+
+
+
+this is my website www.superstatsfootball.com and i have access to cpanel, to install apps, i have pro plan subscription on GreenGeeks.
