@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: superstats_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - backend_data:/app/data
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - redis
+    networks:
+      - superstats_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: superstats_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - superstats_network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # Optional: Add PostgreSQL if not using Supabase
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: superstats_postgres
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: superstats
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - superstats_network
+  #   restart: unless-stopped
+
+volumes:
+  backend_data:
+  redis_data:
+  # postgres_data:
+
+networks:
+  superstats_network:
+    driver: bridge
