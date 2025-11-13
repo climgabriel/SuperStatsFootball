@@ -83,8 +83,5 @@ class Settings(BaseSettings):
     # ML Models
     ML_MODEL_PATH: str = "app/ml/models"
 
-    class Config:
-        case_sensitive = True
-
 
 settings = Settings()
