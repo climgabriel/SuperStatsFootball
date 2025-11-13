@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List
+from typing import List, Optional
 
 from app.core.dependencies import get_db, require_admin
 from app.models.user import User
 from app.models.fixture import Fixture
 from app.models.league import League
 from app.models.prediction import Prediction
+from app.services.data_sync_service import DataSyncService, run_full_sync
+from app.services.season_manager import SeasonManager
 
 router = APIRouter()
 
@@ -127,21 +129,139 @@ async def update_user_tier(
     }
 
 
-@router.post("/sync/fixtures")
-async def sync_fixtures(
-    league_id: int,
-    season: int,
+@router.post("/sync/full")
+async def sync_all_leagues(
+    tier_filter: Optional[str] = None,
+    limit: Optional[int] = None,
     current_user: User = Depends(require_admin()),
     db: Session = Depends(get_db)
 ):
     """
-    Trigger manual fixture sync for a league/season.
+    Trigger full synchronization of all leagues (or filtered by tier).
 
-    Admin only. This would trigger the background sync job.
+    Admin only. Syncs 150+ leagues for current + 4 previous seasons.
+
+    Query Parameters:
+    - tier_filter: Only sync leagues for specific tier (free, starter, pro, premium, ultimate)
+    - limit: Limit number of leagues to sync (useful for testing)
     """
-    # TODO: Implement actual sync logic
-    return {
-        "status": "started",
-        "message": f"Fixture sync started for league {league_id}, season {season}",
-        "note": "Sync job implementation pending"
-    }
+    try:
+        result = await run_full_sync(db, tier=tier_filter)
+        return {
+            "status": "completed",
+            "message": "Full league synchronization completed successfully",
+            "details": result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Synchronization failed: {str(e)}"
+        )
+
+
+@router.post("/sync/league/{league_id}")
+async def sync_single_league(
+    league_id: int,
+    season: Optional[int] = None,
+    current_user: User = Depends(require_admin()),
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger synchronization for a specific league.
+
+    Admin only. If season is not provided, syncs current + 4 previous seasons.
+    """
+    try:
+        service = DataSyncService(db)
+        season_manager = SeasonManager(db)
+
+        if season:
+            seasons_to_sync = [season]
+        else:
+            seasons_to_sync = season_manager.get_valid_seasons()
+
+        for s in seasons_to_sync:
+            await service._sync_league_season(league_id, s)
+
+        return {
+            "status": "completed",
+            "league_id": league_id,
+            "seasons_synced": seasons_to_sync,
+            "sync_stats": service.sync_stats
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"League sync failed: {str(e)}"
+        )
+
+
+@router.get("/season/statistics")
+async def get_season_statistics(
+    current_user: User = Depends(require_admin()),
+    db: Session = Depends(get_db)
+):
+    """
+    Get statistics about seasons in database.
+
+    Admin only. Shows current season, valid seasons, and fixture counts per season.
+    """
+    season_manager = SeasonManager(db)
+    stats = season_manager.get_season_statistics()
+    return stats
+
+
+@router.post("/season/cleanup")
+async def cleanup_old_seasons(
+    league_id: Optional[int] = None,
+    current_user: User = Depends(require_admin()),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually trigger cleanup of old seasons.
+
+    Admin only. Removes data from seasons older than retention policy (current + 4 previous).
+
+    Query Parameters:
+    - league_id: Optional. Clean specific league, or all leagues if not provided
+    """
+    try:
+        season_manager = SeasonManager(db)
+        cleanup_stats = season_manager.cleanup_old_seasons(league_id=league_id)
+
+        return {
+            "status": "completed",
+            "message": "Season cleanup completed successfully",
+            "stats": cleanup_stats
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Season cleanup failed: {str(e)}"
+        )
+
+
+@router.post("/season/check-transition")
+async def check_season_transition(
+    current_user: User = Depends(require_admin()),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if season transition has occurred and perform cleanup if needed.
+
+    Admin only. Automatically detects new season and removes oldest season data.
+    """
+    try:
+        season_manager = SeasonManager(db)
+        transition_info = season_manager.check_season_transition()
+
+        return {
+            "status": "completed",
+            "transition_info": transition_info,
+            "message": "Season transition check completed"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Season transition check failed: {str(e)}"
+        )
