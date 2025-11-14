@@ -20,6 +20,7 @@ from app.services.season_manager import SeasonManager
 from app.models.league import League
 from app.models.team import Team
 from app.models.fixture import Fixture, FixtureStat, FixtureScore
+from app.models.odds import FixtureOdds
 from app.core.leagues_config import (
     get_all_league_ids,
     get_sync_priority_leagues,
@@ -409,6 +410,271 @@ class DataSyncService:
         except Exception as e:
             logger.error(f"Error syncing stats for fixture {fixture_id}: {str(e)}")
             self.db.rollback()
+
+    async def _get_superbet_id(self) -> Optional[int]:
+        """
+        Get Superbet.ro bookmaker ID from API-Football.
+        Caches the result in class variable.
+        """
+        if not hasattr(self, '_superbet_id_cache'):
+            try:
+                bookmakers = await api_football_client.get_bookmakers()
+                # Search for Superbet bookmaker
+                superbet = next(
+                    (b for b in bookmakers if "superbet" in b.get("name", "").lower()),
+                    None
+                )
+                if superbet:
+                    self._superbet_id_cache = superbet["id"]
+                    logger.info(f"Found Superbet bookmaker ID: {self._superbet_id_cache}")
+                else:
+                    logger.warning("Superbet bookmaker not found in API-Football")
+                    self._superbet_id_cache = None
+            except Exception as e:
+                logger.error(f"Error fetching bookmakers: {str(e)}")
+                self._superbet_id_cache = None
+
+        return self._superbet_id_cache
+
+    def _parse_odds_value(self, bet_values: List[Dict], value_name: str) -> Optional[float]:
+        """
+        Parse odds value from API-Football bet values array.
+
+        Args:
+            bet_values: List of bet value objects
+            value_name: Name of the value to extract (e.g., "Home", "Draw", "Away", "Over 2.5", "Under 2.5")
+
+        Returns:
+            Odds value as float or None
+        """
+        for value in bet_values:
+            if value.get("value") == value_name:
+                return float(value.get("odd", 0))
+        return None
+
+    async def _sync_fixture_odds(self, fixture_id: int, is_live: bool = False) -> None:
+        """
+        Sync Superbet odds for a specific fixture.
+
+        Args:
+            fixture_id: Fixture ID
+            is_live: True for live odds, False for pre-match odds
+        """
+        try:
+            superbet_id = await self._get_superbet_id()
+            if not superbet_id:
+                logger.warning("Cannot sync odds: Superbet bookmaker not found")
+                return
+
+            # Fetch odds from API-Football
+            if is_live:
+                odds_data = await api_football_client.get_live_odds(fixture_id, bookmaker=superbet_id)
+            else:
+                odds_data = await api_football_client.get_odds(fixture_id, bookmaker=superbet_id)
+
+            if not odds_data:
+                logger.debug(f"No odds data found for fixture {fixture_id}")
+                return
+
+            # Parse odds response
+            for odds_entry in odds_data:
+                bookmakers = odds_entry.get("bookmakers", [])
+                if not bookmakers:
+                    continue
+
+                # Get Superbet bookmaker data
+                superbet_data = next(
+                    (b for b in bookmakers if b.get("id") == superbet_id),
+                    None
+                )
+                if not superbet_data:
+                    continue
+
+                # Extract bets
+                bets = superbet_data.get("bets", [])
+
+                # Find Match Winner (1X2) bet (bet id: 1)
+                match_winner = next((b for b in bets if b.get("id") == 1), None)
+                # Find Goals Over/Under bet (bet id: 5)
+                over_under = next((b for b in bets if b.get("id") == 5), None)
+                # Find HT/FT bets if available
+                ht_ft = next((b for b in bets if "halftime" in b.get("name", "").lower()), None)
+
+                # Check if odds record exists
+                odds_record = self.db.query(FixtureOdds).filter(
+                    FixtureOdds.fixture_id == fixture_id,
+                    FixtureOdds.bookmaker_id == superbet_id,
+                    FixtureOdds.is_live == is_live
+                ).first()
+
+                if not odds_record:
+                    odds_record = FixtureOdds(
+                        fixture_id=fixture_id,
+                        bookmaker_id=superbet_id,
+                        bookmaker_name="Superbet",
+                        is_live=is_live
+                    )
+                    self.db.add(odds_record)
+
+                # Parse and update odds
+                if match_winner:
+                    values = match_winner.get("values", [])
+                    odds_record.home_win_odds = self._parse_odds_value(values, "Home")
+                    odds_record.draw_odds = self._parse_odds_value(values, "Draw")
+                    odds_record.away_win_odds = self._parse_odds_value(values, "Away")
+
+                    # Also set fulltime odds (same as match winner for now)
+                    odds_record.ft_home_win_odds = odds_record.home_win_odds
+                    odds_record.ft_draw_odds = odds_record.draw_odds
+                    odds_record.ft_away_win_odds = odds_record.away_win_odds
+
+                if over_under:
+                    values = over_under.get("values", [])
+                    odds_record.over_2_5_odds = self._parse_odds_value(values, "Over 2.5")
+                    odds_record.under_2_5_odds = self._parse_odds_value(values, "Under 2.5")
+
+                # For halftime odds, try to find halftime-specific bets
+                if ht_ft:
+                    values = ht_ft.get("values", [])
+                    odds_record.ht_home_win_odds = self._parse_odds_value(values, "Home/Home")
+                    odds_record.ht_draw_odds = self._parse_odds_value(values, "Draw/Draw")
+                    odds_record.ht_away_win_odds = self._parse_odds_value(values, "Away/Away")
+
+                # Update metadata
+                odds_record.fetched_at = datetime.utcnow()
+                odds_record.updated_at = datetime.utcnow()
+
+                self.db.commit()
+                logger.info(f"{'Live' if is_live else 'Pre-match'} odds synced for fixture {fixture_id}")
+
+        except Exception as e:
+            logger.error(f"Error syncing odds for fixture {fixture_id}: {str(e)}")
+            self.db.rollback()
+
+    async def sync_pre_match_odds(self, days_ahead: int = 7, league_id: Optional[int] = None) -> Dict:
+        """
+        Sync pre-match odds for upcoming fixtures.
+
+        Args:
+            days_ahead: Number of days to look ahead
+            league_id: Optional league filter
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            logger.info(f"Starting pre-match odds sync for next {days_ahead} days...")
+
+            # Get upcoming fixtures
+            from datetime import timedelta
+            now = datetime.utcnow()
+            end_date = now + timedelta(days=days_ahead)
+
+            query = self.db.query(Fixture).filter(
+                Fixture.match_date >= now,
+                Fixture.match_date <= end_date,
+                Fixture.status.in_(["NS", "TBD"])  # Not started
+            )
+
+            if league_id:
+                query = query.filter(Fixture.league_id == league_id)
+
+            fixtures = query.all()
+
+            logger.info(f"Found {len(fixtures)} upcoming fixtures")
+
+            # Sync odds for each fixture
+            synced_count = 0
+            errors = []
+
+            for fixture in fixtures:
+                try:
+                    await self._sync_fixture_odds(fixture.id, is_live=False)
+                    synced_count += 1
+
+                    # Rate limiting
+                    await asyncio.sleep(0.5)  # 0.5 second delay between requests
+
+                except Exception as e:
+                    error_msg = f"Error syncing odds for fixture {fixture.id}: {str(e)}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+
+            result = {
+                "status": "completed",
+                "fixtures_processed": len(fixtures),
+                "odds_synced": synced_count,
+                "errors": errors
+            }
+
+            logger.info(f"Pre-match odds sync completed: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error in pre-match odds sync: {str(e)}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    async def sync_live_odds(self, league_id: Optional[int] = None) -> Dict:
+        """
+        Sync live odds for ongoing matches.
+
+        Args:
+            league_id: Optional league filter
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            logger.info("Starting live odds sync...")
+
+            # Get live fixtures
+            query = self.db.query(Fixture).filter(
+                Fixture.status.in_(["1H", "2H", "HT", "ET", "P", "LIVE"])
+            )
+
+            if league_id:
+                query = query.filter(Fixture.league_id == league_id)
+
+            fixtures = query.all()
+
+            logger.info(f"Found {len(fixtures)} live fixtures")
+
+            # Sync live odds for each fixture
+            synced_count = 0
+            errors = []
+
+            for fixture in fixtures:
+                try:
+                    await self._sync_fixture_odds(fixture.id, is_live=True)
+                    synced_count += 1
+
+                    # Rate limiting
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    error_msg = f"Error syncing live odds for fixture {fixture.id}: {str(e)}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+
+            result = {
+                "status": "completed",
+                "fixtures_processed": len(fixtures),
+                "odds_synced": synced_count,
+                "errors": errors
+            }
+
+            logger.info(f"Live odds sync completed: {result}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error in live odds sync: {str(e)}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
 
 
 async def run_full_sync(db: Session, tier: Optional[str] = None) -> Dict:
