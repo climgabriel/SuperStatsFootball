@@ -38,5 +38,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health')"
 
 # Run application (production mode - no reload)
-# Use Railway's PORT environment variable
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Use Railway's PORT environment variable (defaults to 8000 if not set)
+CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
