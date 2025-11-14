@@ -6,7 +6,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.core.config import settings
-from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks
+from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds
 from app.db.session import engine
 from app.db.base import Base
 from app.utils.logger import logger
@@ -48,6 +48,7 @@ app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=
 app.include_router(leagues.router, prefix=f"{settings.API_V1_PREFIX}/leagues", tags=["Leagues"])
 app.include_router(fixtures.router, prefix=f"{settings.API_V1_PREFIX}/fixtures", tags=["Fixtures"])
 app.include_router(predictions.router, prefix=f"{settings.API_V1_PREFIX}/predictions", tags=["Predictions"])
+app.include_router(odds.router, prefix=f"{settings.API_V1_PREFIX}/odds", tags=["Odds"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["Admin"])
 app.include_router(webhooks.router, prefix=f"{settings.API_V1_PREFIX}/webhooks", tags=["Webhooks"])
 
@@ -62,7 +63,7 @@ async def startup_event():
     # Create database tables (in production, use Alembic migrations)
     if settings.ENVIRONMENT == "development":
         try:
-            from app.models import user, league, team, fixture, prediction
+            from app.models import user, league, team, fixture, prediction, odds
             Base.metadata.create_all(bind=engine)
             logger.info("✅ Database tables created")
         except Exception as e:

@@ -23,6 +23,9 @@ class Fixture(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Relationships
+    odds = relationship("FixtureOdds", back_populates="fixture", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<Fixture {self.id}: {self.home_team_id} vs {self.away_team_id}>"
 

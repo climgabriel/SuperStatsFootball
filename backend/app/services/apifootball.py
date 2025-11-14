@@ -131,6 +131,66 @@ class APIFootballClient:
         data = await self._make_request("standings", params)
         return data.get("response", [])
 
+    async def get_bookmakers(self) -> List[Dict]:
+        """
+        Get list of all available bookmakers.
+        Used to find Superbet bookmaker ID.
+        """
+        data = await self._make_request("odds/bookmakers")
+        return data.get("response", [])
+
+    async def get_odds(
+        self,
+        fixture_id: int,
+        bookmaker: Optional[int] = None,
+        bet: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Get pre-match odds for a fixture.
+
+        Args:
+            fixture_id: Fixture ID
+            bookmaker: Bookmaker ID (e.g., Superbet ID)
+            bet: Bet type ID (e.g., 1 for Match Winner, 5 for Goals Over/Under)
+
+        Returns:
+            List of odds data from API-Football
+        """
+        params = {"fixture": fixture_id}
+        if bookmaker:
+            params["bookmaker"] = bookmaker
+        if bet:
+            params["bet"] = bet
+
+        data = await self._make_request("odds", params)
+        return data.get("response", [])
+
+    async def get_live_odds(
+        self,
+        fixture_id: int,
+        bookmaker: Optional[int] = None,
+        bet: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Get live odds for an ongoing match.
+
+        Args:
+            fixture_id: Fixture ID
+            bookmaker: Bookmaker ID (e.g., Superbet ID)
+            bet: Bet type ID
+
+        Returns:
+            List of live odds data from API-Football
+        """
+        params = {"fixture": fixture_id}
+        if bookmaker:
+            params["bookmaker"] = bookmaker
+        if bet:
+            params["bet"] = bet
+
+        data = await self._make_request("odds/live", params)
+        return data.get("response", [])
+
     async def close(self):
         """Close the HTTP client."""
         if self.client:
