@@ -1,0 +1,55 @@
+# Railway ignore file - exclude unnecessary files from deployment
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+TESTING_GUIDE.md
+QUICK_TEST.md
+tutorial-SuperStatsFootball.txt
+
+# Test scripts
+test_system.sh
+backend/tests/
+*.test.py
+
+# Development files
+.env.example
+.dockerignore
+
+# Logs
+backend/logs/
+*.log
+
+# Database files (use Supabase instead)
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend (not needed for backend deployment)
+frontend/
