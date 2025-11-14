@@ -1,3 +1,4 @@
+# Railway deployment - cache bust 2025-11-14-04:20
 [phases.setup]
 nixPkgs = ["python311", "gcc", "postgresql"]
 
