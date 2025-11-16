@@ -33,13 +33,20 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None
 )
 
-# CORS middleware
+# CORS middleware - allow all origins in development, specific origins in production
+cors_origins = ["*"] if settings.ENVIRONMENT == "development" else [
+    "https://*.greengeeksclient.com",
+    "https://superstatsfootball.com",
+    "https://www.superstatsfootball.com"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Include routers
