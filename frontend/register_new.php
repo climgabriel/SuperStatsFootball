@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($loginResult['success']) {
                 header('Refresh: 2; URL=index.php');
             } else {
-                header('Refresh: 2; URL=login.php');
+                header('Refresh: 2; URL=login_new.php');
             }
         } else {
             $error = $result['error'] ?? 'Registration failed. Please try again.';
@@ -78,7 +78,7 @@ include 'includes/auth-header.php';
             </div>
             <?php endif; ?>
 
-            <form id="formAuthentication" class="mb-6" method="POST" action="register.php">
+            <form id="formAuthentication" class="mb-6" method="POST" action="register_new.php">
               <div class="mb-6">
                 <label for="full-name" class="form-label">Full Name</label>
                 <input type="text" class="form-control" id="full-name" name="full-name"
@@ -126,7 +126,7 @@ include 'includes/auth-header.php';
 
             <p class="text-center">
               <span>Already have an account?</span>
-              <a href="login.php">
+              <a href="login_new.php">
                 <span>Sign in instead</span>
               </a>
             </p>

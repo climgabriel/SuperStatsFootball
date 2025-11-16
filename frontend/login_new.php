@@ -61,7 +61,7 @@ include 'includes/auth-header.php';
             </div>
             <?php endif; ?>
 
-            <form id="formAuthentication" class="mb-6" method="POST" action="login.php">
+            <form id="formAuthentication" class="mb-6" method="POST" action="login_new.php">
               <div class="mb-6">
                 <label for="email" class="form-label">Email or Username</label>
                 <input type="text" class="form-control" id="email" name="email-username"
@@ -95,7 +95,7 @@ include 'includes/auth-header.php';
 
             <p class="text-center">
               <span>New on our platform?</span>
-              <a href="register.php">
+              <a href="register_new.php">
                 <span>Create an account</span>
               </a>
             </p>
