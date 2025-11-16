@@ -68,6 +68,11 @@ class EloModel:
         away_expected_goals = 1.0 + (away_rating - 1500) / 300
 
         return {
+            "probabilities": {
+                "home_win": round(home_win_prob, 4),
+                "draw": round(draw_prob, 4),
+                "away_win": round(away_win_prob, 4)
+            },
             "home_win_prob": round(home_win_prob, 4),
             "draw_prob": round(draw_prob, 4),
             "away_win_prob": round(away_win_prob, 4),

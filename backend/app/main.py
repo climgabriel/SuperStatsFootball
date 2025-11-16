@@ -6,7 +6,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.core.config import settings
-from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds, statistics
+from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds, statistics, combined_predictions
 from app.db.session import engine
 from app.db.base import Base
 from app.utils.logger import logger
@@ -33,13 +33,20 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DEBUG else None
 )
 
-# CORS middleware
+# CORS middleware - allow all origins in development, specific origins in production
+cors_origins = ["*"] if settings.ENVIRONMENT == "development" else [
+    "https://*.greengeeksclient.com",
+    "https://superstatsfootball.com",
+    "https://www.superstatsfootball.com"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Include routers
@@ -50,6 +57,7 @@ app.include_router(fixtures.router, prefix=f"{settings.API_V1_PREFIX}/fixtures",
 app.include_router(predictions.router, prefix=f"{settings.API_V1_PREFIX}/predictions", tags=["Predictions"])
 app.include_router(odds.router, prefix=f"{settings.API_V1_PREFIX}/odds", tags=["Odds"])
 app.include_router(statistics.router, prefix=f"{settings.API_V1_PREFIX}/statistics", tags=["Statistics"])
+app.include_router(combined_predictions.router, prefix=f"{settings.API_V1_PREFIX}/combined", tags=["Combined Predictions"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["Admin"])
 app.include_router(webhooks.router, prefix=f"{settings.API_V1_PREFIX}/webhooks", tags=["Webhooks"])
 

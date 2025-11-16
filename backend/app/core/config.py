@@ -32,7 +32,11 @@ class Settings(BaseSettings):
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "https://*.greengeeksclient.com",  # GreenGeeks hosting
+        "https://superstatsfootball.com",   # Production domain (if applicable)
+        "https://www.superstatsfootball.com",  # Production domain with www
+        "*"  # Allow all origins in development (remove in production)
     ]
 
     # API-Football
