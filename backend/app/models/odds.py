@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Foreig
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
-from app.db.base_class import Base
+from app.db.base import Base
 
 
 class FixtureOdds(Base):
