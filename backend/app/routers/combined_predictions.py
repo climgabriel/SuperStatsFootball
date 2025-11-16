@@ -1,13 +1,22 @@
 """
 Combined Predictions & Odds Endpoint
 
-Provides unified response with:
-- Bookmaker odds (from API-Football/Superbet)
-- ML predictions (Poisson, Dixon-Coles, Elo based on tier)
-- Calculated probabilities
-- True odds (1 / probability)
-- Draw No Bet calculations
-- Double Chance calculations
+IMPORTANT: This endpoint combines TWO COMPLETELY SEPARATE data sources:
+
+1. BOOKMAKER ODDS (from API-Football/Superbet):
+   - Fetched from FixtureOdds table
+   - External bookmaker data
+   - NOT used in ML calculations
+
+2. ML PREDICTIONS (from YOUR database ONLY):
+   - Calculated from historical match data in Fixture table
+   - Uses team statistics: goals scored/conceded, win/loss records
+   - Uses Elo ratings from TeamRating table
+   - NEVER uses bookmaker odds
+   - Models: Poisson, Dixon-Coles, Elo (based on user tier)
+
+The response combines both for comparison, but they are 100% independent.
+ML predictions are purely statistical from your historical data.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -148,13 +157,25 @@ async def get_fixtures_with_predictions_and_odds(
 
         for fixture in fixtures:
             try:
-                # Get Superbet odds
+                # ========================================
+                # STEP 1: Get bookmaker odds (EXTERNAL)
+                # ========================================
+                # These are from API-Football/Superbet
+                # Stored in FixtureOdds table
+                # NOT used in ML predictions at all
                 odds_obj = next(
                     (o for o in fixture.odds if o.bookmaker_name == "Superbet" and not o.is_live),
                     None
                 )
 
-                # Generate ML predictions
+                # ========================================
+                # STEP 2: Generate ML predictions (DATABASE ONLY)
+                # ========================================
+                # This calculates predictions from YOUR historical data:
+                # - Historical fixtures (goals scored/conceded)
+                # - Team statistics (attack/defense strength)
+                # - Elo ratings (from past match results)
+                # - ZERO input from bookmaker odds
                 try:
                     prediction_data = prediction_pipeline.generate_prediction(
                         fixture_id=fixture.id,

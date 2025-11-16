@@ -149,7 +149,16 @@ class PredictionPipeline:
         user_tier: str = "free"
     ) -> Dict:
         """
-        Generate predictions for a fixture based on user tier.
+        Generate ML predictions for a fixture based on user tier.
+
+        IMPORTANT: Predictions are calculated ONLY from database statistics:
+        - Historical match results (Fixture table)
+        - Team performance metrics (goals scored/conceded)
+        - Attack/defense strength ratios
+        - Elo ratings (calculated from past results)
+
+        This method NEVER uses bookmaker odds or any external prediction data.
+        All calculations are purely statistical from your historical database.
 
         Args:
             fixture_id: Fixture to predict
