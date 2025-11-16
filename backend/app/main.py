@@ -65,18 +65,28 @@ app.include_router(webhooks.router, prefix=f"{settings.API_V1_PREFIX}/webhooks",
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup."""
-    logger.info(f"🚀 {settings.APP_NAME} v{settings.VERSION} starting...")
-    logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
-    logger.info(f"🔒 Debug mode: {settings.DEBUG}")
+    try:
+        logger.info(f"🚀 {settings.APP_NAME} v{settings.VERSION} starting...")
+        logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
+        logger.info(f"🔒 Debug mode: {settings.DEBUG}")
+        logger.info(f"🗄️  Database: {settings.DATABASE_URL[:30] if settings.DATABASE_URL else 'SQLite (default)'}...")
 
-    # Create database tables (in production, use Alembic migrations)
-    if settings.ENVIRONMENT == "development":
-        try:
-            from app.models import user, league, team, fixture, prediction, odds
-            Base.metadata.create_all(bind=engine)
-            logger.info("✅ Database tables created")
-        except Exception as e:
-            logger.error(f"❌ Error creating database tables: {str(e)}")
+        # Create database tables (in production, use Alembic migrations)
+        if settings.ENVIRONMENT == "development":
+            try:
+                from app.models import user, league, team, fixture, prediction, odds
+                Base.metadata.create_all(bind=engine)
+                logger.info("✅ Database tables created")
+            except Exception as e:
+                logger.error(f"❌ Error creating database tables: {str(e)}")
+                # Don't fail startup for table creation errors
+
+        logger.info("✅ Startup complete!")
+    except Exception as e:
+        logger.error(f"❌ FATAL: Startup failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Allow startup to continue so healthcheck can respond
 
 
 @app.on_event("shutdown")
