@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+import os
 
 from app.core.config import settings
 from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds, statistics, combined_predictions
@@ -22,8 +23,12 @@ if settings.SENTRY_DSN:
         traces_sample_rate=1.0 if settings.ENVIRONMENT == "development" else 0.1,
         environment=settings.ENVIRONMENT
     )
+    logger.info("📊 Sentry monitoring initialized")
+else:
+    logger.info("📊 Sentry monitoring disabled (no DSN configured)")
 
 # Create FastAPI app
+logger.info(f"🏗️  Creating FastAPI application: {settings.APP_NAME} v{settings.VERSION}")
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
@@ -32,6 +37,7 @@ app = FastAPI(
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None
 )
+logger.info("✅ FastAPI application created")
 
 # CORS middleware - allow all origins in development, specific origins in production
 cors_origins = ["*"] if settings.ENVIRONMENT == "development" else [
@@ -40,6 +46,7 @@ cors_origins = ["*"] if settings.ENVIRONMENT == "development" else [
     "https://www.superstatsfootball.com"
 ]
 
+logger.info(f"🌐 CORS origins: {cors_origins}")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -48,8 +55,10 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+logger.info("✅ CORS middleware configured")
 
 # Include routers
+logger.info("📡 Registering API routers...")
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["Authentication"])
 app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=["Users"])
 app.include_router(leagues.router, prefix=f"{settings.API_V1_PREFIX}/leagues", tags=["Leagues"])
@@ -60,32 +69,77 @@ app.include_router(statistics.router, prefix=f"{settings.API_V1_PREFIX}/statisti
 app.include_router(combined_predictions.router, prefix=f"{settings.API_V1_PREFIX}/combined", tags=["Combined Predictions"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["Admin"])
 app.include_router(webhooks.router, prefix=f"{settings.API_V1_PREFIX}/webhooks", tags=["Webhooks"])
+logger.info("✅ All routers registered successfully")
 
 
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup."""
     try:
-        logger.info(f"🚀 {settings.APP_NAME} v{settings.VERSION} starting...")
+        logger.info("=" * 80)
+        logger.info(f"🚀 {settings.APP_NAME} v{settings.VERSION} STARTING...")
+        logger.info("=" * 80)
+
+        # Environment configuration
         logger.info(f"📍 Environment: {settings.ENVIRONMENT}")
         logger.info(f"🔒 Debug mode: {settings.DEBUG}")
-        logger.info(f"🗄️  Database: {settings.DATABASE_URL[:30] if settings.DATABASE_URL else 'SQLite (default)'}...")
+        logger.info(f"🌐 Host: 0.0.0.0")
+        logger.info(f"🔌 Port: {os.getenv('PORT', '8000')}")
+
+        # Database configuration
+        db_url = settings.DATABASE_URL
+        if db_url:
+            # Mask password in database URL for security
+            if '@' in db_url:
+                masked_url = db_url.split('@')[0].split('://')[0] + '://***:***@' + db_url.split('@')[1]
+            else:
+                masked_url = db_url[:30] + '...'
+            logger.info(f"🗄️  Database: {masked_url}")
+        else:
+            logger.info("🗄️  Database: SQLite (default - fallback mode)")
+            logger.warning("⚠️  DATABASE_URL not set! Using SQLite fallback.")
+
+        # Check critical environment variables
+        logger.info("🔍 Checking environment variables...")
+        env_checks = {
+            "DATABASE_URL": bool(settings.DATABASE_URL),
+            "SECRET_KEY": bool(settings.SECRET_KEY),
+            "ENVIRONMENT": bool(settings.ENVIRONMENT),
+            "API_V1_PREFIX": bool(settings.API_V1_PREFIX)
+        }
+        for var_name, is_set in env_checks.items():
+            status = "✅" if is_set else "❌"
+            logger.info(f"  {status} {var_name}: {'SET' if is_set else 'NOT SET'}")
 
         # Create database tables (in production, use Alembic migrations)
         if settings.ENVIRONMENT == "development":
+            logger.info("🏗️  Creating database tables (development mode)...")
             try:
                 from app.models import user, league, team, fixture, prediction, odds
                 Base.metadata.create_all(bind=engine)
-                logger.info("✅ Database tables created")
+                logger.info("✅ Database tables created successfully")
             except Exception as e:
                 logger.error(f"❌ Error creating database tables: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
                 # Don't fail startup for table creation errors
+        else:
+            logger.info("🏗️  Production mode: Skipping table creation (use Alembic migrations)")
 
-        logger.info("✅ Startup complete!")
+        logger.info("=" * 80)
+        logger.info("✅ STARTUP COMPLETE! Application is ready to accept requests.")
+        logger.info(f"📋 Healthcheck endpoint available at: /health")
+        logger.info(f"📋 API documentation available at: /docs (debug mode only)")
+        logger.info("=" * 80)
     except Exception as e:
-        logger.error(f"❌ FATAL: Startup failed: {str(e)}")
+        logger.error("=" * 80)
+        logger.error(f"❌ FATAL: Startup failed with error: {str(e)}")
+        logger.error("=" * 80)
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
+        logger.error("=" * 80)
+        logger.info("⚠️  Allowing startup to continue so healthcheck can respond...")
+        logger.error("=" * 80)
         # Allow startup to continue so healthcheck can respond
 
 
@@ -102,6 +156,7 @@ async def shutdown_event():
 @app.get("/")
 async def root():
     """Root endpoint."""
+    logger.info("📞 Root endpoint called: /")
     return {
         "message": f"Welcome to {settings.APP_NAME} API",
         "version": settings.VERSION,
@@ -113,12 +168,17 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {
+    logger.info("🏥 Health check endpoint called: /health")
+    response = {
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
         "version": settings.VERSION,
-        "api": "operational"
+        "api": "operational",
+        "database": "connected" if settings.DATABASE_URL else "sqlite_fallback",
+        "port": os.getenv("PORT", "8000")
     }
+    logger.info(f"✅ Health check response: {response}")
+    return response
 
 
 @app.exception_handler(Exception)
