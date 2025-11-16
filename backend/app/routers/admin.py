@@ -8,8 +8,10 @@ from app.models.user import User
 from app.models.fixture import Fixture
 from app.models.league import League
 from app.models.prediction import Prediction
+from app.models.odds import FixtureOdds
 from app.services.data_sync_service import DataSyncService, run_full_sync
 from app.services.season_manager import SeasonManager
+from app.db.session import engine
 
 router = APIRouter()
 
@@ -264,4 +266,97 @@ async def check_season_transition(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Season transition check failed: {str(e)}"
+        )
+
+
+@router.post("/database/create-odds-table")
+async def create_odds_table(db: Session = Depends(get_db)):
+    """
+    Create the fixture_odds table in the database.
+
+    One-time setup endpoint. No authentication required for initial setup.
+    Run this once after deploying odds integration to create the table.
+    """
+    try:
+        # Create only the FixtureOdds table
+        FixtureOdds.__table__.create(bind=engine, checkfirst=True)
+
+        # Verify table was created
+        table_exists = db.execute(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'fixture_odds')"
+        ).scalar()
+
+        return {
+            "status": "success",
+            "message": "fixture_odds table created successfully",
+            "table_exists": table_exists
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create odds table: {str(e)}"
+        )
+
+
+@router.post("/odds/sync-upcoming")
+async def sync_upcoming_odds(
+    days_ahead: int = 7,
+    league_id: Optional[int] = None,
+    current_user: User = Depends(require_admin()),
+    db: Session = Depends(get_db)
+):
+    """
+    Sync pre-match odds for upcoming fixtures.
+
+    Admin only. Fetches Superbet odds from API-Football for fixtures
+    in the next N days.
+
+    Query Parameters:
+    - days_ahead: Number of days to look ahead (default: 7)
+    - league_id: Optional league filter
+    """
+    try:
+        service = DataSyncService(db)
+        result = await service.sync_pre_match_odds(days_ahead=days_ahead, league_id=league_id)
+
+        return {
+            "status": "completed",
+            "message": "Pre-match odds sync completed",
+            "details": result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Odds sync failed: {str(e)}"
+        )
+
+
+@router.post("/odds/sync-live")
+async def sync_live_odds(
+    league_id: Optional[int] = None,
+    current_user: User = Depends(require_admin()),
+    db: Session = Depends(get_db)
+):
+    """
+    Sync live odds for ongoing matches.
+
+    Admin only. Fetches Superbet live odds from API-Football for
+    all currently ongoing matches.
+
+    Query Parameters:
+    - league_id: Optional league filter
+    """
+    try:
+        service = DataSyncService(db)
+        result = await service.sync_live_odds(league_id=league_id)
+
+        return {
+            "status": "completed",
+            "message": "Live odds sync completed",
+            "details": result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Live odds sync failed: {str(e)}"
         )
