@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from typing import List, Optional
 
 from app.core.dependencies import get_db, require_admin
@@ -283,7 +283,7 @@ async def create_odds_table(db: Session = Depends(get_db)):
 
         # Verify table was created
         table_exists = db.execute(
-            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'fixture_odds')"
+            text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'fixture_odds')")
         ).scalar()
 
         return {
