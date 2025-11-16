@@ -112,6 +112,11 @@ class DixonColesModel:
             })
 
         return {
+            "probabilities": {
+                "home_win": round(float(home_win_prob), 4),
+                "draw": round(float(draw_prob), 4),
+                "away_win": round(float(away_win_prob), 4)
+            },
             "home_win_prob": round(float(home_win_prob), 4),
             "draw_prob": round(float(draw_prob), 4),
             "away_win_prob": round(float(away_win_prob), 4),
