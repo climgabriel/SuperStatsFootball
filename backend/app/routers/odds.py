@@ -77,15 +77,18 @@ async def get_upcoming_odds(
     # Get total count
     total = query.count()
 
-    # Get fixtures with eager loading
+    # Get fixtures with eager loading (including leagues and teams)
     fixtures = query.options(
-        joinedload(Fixture.odds)
+        joinedload(Fixture.odds),
+        joinedload(Fixture.league),
+        joinedload(Fixture.home_team),
+        joinedload(Fixture.away_team)
     ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
 
     # Transform to response format
     result_fixtures = []
     for fixture in fixtures:
-        # Get leagues and teams (simplified for now - you may need to join these)
+        # Get leagues and teams with proper names
         odds_obj = next((o for o in fixture.odds if o.bookmaker_name == "Superbet" and not o.is_live), None)
 
         if not odds_obj:
@@ -93,10 +96,10 @@ async def get_upcoming_odds(
 
         fixture_with_odds = FixtureWithOdds(
             fixture_id=fixture.id,
-            league_name=f"League {fixture.league_id}",  # TODO: Join with League model
+            league_name=fixture.league.name if fixture.league else f"League {fixture.league_id}",
             match_date=fixture.match_date,
-            home_team=f"Team {fixture.home_team_id}",  # TODO: Join with Team model
-            away_team=f"Team {fixture.away_team_id}",  # TODO: Join with Team model
+            home_team=fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
+            away_team=fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
             status=fixture.status,
             bookmaker="Superbet",
             odds_1x2=Odds1X2(
@@ -154,9 +157,12 @@ async def get_live_odds(
     # Get total count
     total = query.count()
 
-    # Get fixtures
+    # Get fixtures with eager loading (including leagues and teams)
     fixtures = query.options(
-        joinedload(Fixture.odds)
+        joinedload(Fixture.odds),
+        joinedload(Fixture.league),
+        joinedload(Fixture.home_team),
+        joinedload(Fixture.away_team)
     ).order_by(Fixture.elapsed_time.desc()).limit(limit).offset(offset).all()
 
     # Transform to response format
@@ -169,10 +175,10 @@ async def get_live_odds(
 
         fixture_with_odds = FixtureWithOdds(
             fixture_id=fixture.id,
-            league_name=f"League {fixture.league_id}",
+            league_name=fixture.league.name if fixture.league else f"League {fixture.league_id}",
             match_date=fixture.match_date,
-            home_team=f"Team {fixture.home_team_id}",
-            away_team=f"Team {fixture.away_team_id}",
+            home_team=fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
+            away_team=fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
             status=fixture.status,
             bookmaker="Superbet",
             odds_1x2=Odds1X2(

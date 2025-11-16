@@ -6,7 +6,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.core.config import settings
-from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds
+from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds, statistics
 from app.db.session import engine
 from app.db.base import Base
 from app.utils.logger import logger
@@ -49,6 +49,7 @@ app.include_router(leagues.router, prefix=f"{settings.API_V1_PREFIX}/leagues", t
 app.include_router(fixtures.router, prefix=f"{settings.API_V1_PREFIX}/fixtures", tags=["Fixtures"])
 app.include_router(predictions.router, prefix=f"{settings.API_V1_PREFIX}/predictions", tags=["Predictions"])
 app.include_router(odds.router, prefix=f"{settings.API_V1_PREFIX}/odds", tags=["Odds"])
+app.include_router(statistics.router, prefix=f"{settings.API_V1_PREFIX}/statistics", tags=["Statistics"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["Admin"])
 app.include_router(webhooks.router, prefix=f"{settings.API_V1_PREFIX}/webhooks", tags=["Webhooks"])
 
