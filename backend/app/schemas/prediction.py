@@ -5,7 +5,7 @@ from datetime import datetime
 
 class PredictionRequest(BaseModel):
     fixture_id: int
-    model_type: str  # 'poisson', 'dixon_coles', 'elo', 'logistic', 'random_forest', 'xgboost'
+    model_type: str  # 'poisson', 'dixon_coles', 'bivariate_poisson', 'elo', 'glicko'
 
 
 class PredictionData(BaseModel):
