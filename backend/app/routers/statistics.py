@@ -38,6 +38,13 @@ from app.schemas.statistics import (
     OffsListResponse
 )
 from app.utils.validators import validate_league_count
+from app.utils.statistics_helpers import (
+    validate_and_normalize_league_ids,
+    build_upcoming_fixtures_query,
+    get_fixtures_with_stats,
+    calculate_team_stat_average,
+    extract_fixture_display_data
+)
 
 router = APIRouter()
 
@@ -61,67 +68,25 @@ async def get_goals_statistics(
     - Both Teams To Score (BTTS)
     - Expected Goals (xG)
     """
-    # Handle league filtering (support both single and multiple league IDs)
-    requested_league_ids = []
-    if league_ids:
-        requested_league_ids = league_ids
-    elif league_id:
-        requested_league_ids = [league_id]
+    # Validate and normalize league IDs
+    requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)
 
-    # Validate league count to prevent app crashes
-    if requested_league_ids:
-        validate_league_count(
-            league_ids=requested_league_ids,
-            user_tier=current_user.tier,
-            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
-            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
-        )
+    # Build query for upcoming fixtures
+    query = build_upcoming_fixtures_query(db, days_ahead, requested_league_ids, season)
 
-    # Calculate date range
-    now = datetime.utcnow()
-    end_date = now + timedelta(days=days_ahead)
-
-    # Query fixtures
-    query = db.query(Fixture).filter(
-        Fixture.match_date >= now,
-        Fixture.match_date <= end_date,
-        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
-    )
-
-    if requested_league_ids:
-        query = query.filter(Fixture.league_id.in_(requested_league_ids))
-    if season:
-        query = query.filter(Fixture.season == season)
-
-    total = query.count()
-
-    # Get fixtures with stats
-    fixtures = query.options(
-        joinedload(Fixture.league),
-        joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team),
-        joinedload(Fixture.stats)
-    ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
+    # Get fixtures with all related data
+    total, fixtures = get_fixtures_with_stats(query, limit, offset)
 
     # Transform to response format
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate goals statistics from historical data
-        # Use already-loaded stats from joinedload (NO additional queries!)
-        home_stats = [s for s in fixture.stats if s.team_id == fixture.home_team_id]
-        away_stats = [s for s in fixture.stats if s.team_id == fixture.away_team_id]
+        # Calculate expected goals from pre-loaded stats
+        home_xg_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'expected_goals', DEFAULT_HOME_XG)
+        away_xg_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'expected_goals', DEFAULT_AWAY_XG)
 
-        # Calculate averages (simplified - in production, use more sophisticated calculations)
-        home_xg_avg = sum([s.expected_goals or 0 for s in home_stats]) / max(len(home_stats), MIN_SAMPLE_SIZE) if home_stats else DEFAULT_HOME_XG
-        away_xg_avg = sum([s.expected_goals or 0 for s in away_stats]) / max(len(away_stats), MIN_SAMPLE_SIZE) if away_stats else DEFAULT_AWAY_XG
-
+        # Build fixture data with common display fields
         fixture_data = {
-            "fixture_id": fixture.id,
-            "league_name": fixture.league.name if fixture.league else f"League {fixture.league_id}",
-            "match_date": fixture.match_date,
-            "home_team": fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
-            "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
-            "status": fixture.status,
+            **extract_fixture_display_data(fixture),
             "goals_stats": {
                 "over_under_2_5": {**SAMPLE_ODDS["over_under_2_5"], "prediction": "Over 2.5"},
                 "over_under_1_5": SAMPLE_ODDS["over_under_1_5"],
@@ -152,59 +117,21 @@ async def get_corners_statistics(
     """
     Get corners statistics for upcoming fixtures.
     """
-    # Handle league filtering
-    requested_league_ids = []
-    if league_ids:
-        requested_league_ids = league_ids
-    elif league_id:
-        requested_league_ids = [league_id]
+    # Validate and normalize league IDs
+    requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)
 
-    # Validate league count
-    if requested_league_ids:
-        validate_league_count(
-            league_ids=requested_league_ids,
-            user_tier=current_user.tier,
-            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
-            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
-        )
-
-    now = datetime.utcnow()
-    end_date = now + timedelta(days=days_ahead)
-
-    query = db.query(Fixture).filter(
-        Fixture.match_date >= now,
-        Fixture.match_date <= end_date,
-        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
-    )
-
-    if requested_league_ids:
-        query = query.filter(Fixture.league_id.in_(requested_league_ids))
-
-    total = query.count()
-
-    fixtures = query.options(
-        joinedload(Fixture.league),
-        joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team),
-        joinedload(Fixture.stats)
-    ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
+    # Build query and get fixtures
+    query = build_upcoming_fixtures_query(db, days_ahead, requested_league_ids)
+    total, fixtures = get_fixtures_with_stats(query, limit, offset)
 
     result_fixtures = []
     for fixture in fixtures:
-        # Use already-loaded stats from joinedload (NO additional queries!)
-        home_corners = [s.corners for s in fixture.stats if s.team_id == fixture.home_team_id and s.corners is not None]
-        home_stats = sum(home_corners) / len(home_corners) if home_corners else DEFAULT_HOME_CORNERS
-
-        away_corners = [s.corners for s in fixture.stats if s.team_id == fixture.away_team_id and s.corners is not None]
-        away_stats = sum(away_corners) / len(away_corners) if away_corners else DEFAULT_AWAY_CORNERS
+        # Calculate corner statistics from pre-loaded stats
+        home_stats = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'corners', DEFAULT_HOME_CORNERS)
+        away_stats = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'corners', DEFAULT_AWAY_CORNERS)
 
         fixture_data = {
-            "fixture_id": fixture.id,
-            "league_name": fixture.league.name if fixture.league else f"League {fixture.league_id}",
-            "match_date": fixture.match_date,
-            "home_team": fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
-            "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
-            "status": fixture.status,
+            **extract_fixture_display_data(fixture),
             "corners_stats": {
                 "total_corners": {
                     "over_9_5": {"odds": "1.90", "probability": "52.6%"},
@@ -242,65 +169,23 @@ async def get_cards_statistics(
     """
     Get yellow and red card statistics for upcoming fixtures.
     """
-    # Handle league filtering
-    requested_league_ids = []
-    if league_ids:
-        requested_league_ids = league_ids
-    elif league_id:
-        requested_league_ids = [league_id]
+    # Validate and normalize league IDs
+    requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)
 
-    # Validate league count
-    if requested_league_ids:
-        validate_league_count(
-            league_ids=requested_league_ids,
-            user_tier=current_user.tier,
-            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
-            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
-        )
-
-    now = datetime.utcnow()
-    end_date = now + timedelta(days=days_ahead)
-
-    query = db.query(Fixture).filter(
-        Fixture.match_date >= now,
-        Fixture.match_date <= end_date,
-        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
-    )
-
-    if requested_league_ids:
-        query = query.filter(Fixture.league_id.in_(requested_league_ids))
-
-    total = query.count()
-
-    fixtures = query.options(
-        joinedload(Fixture.league),
-        joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team),
-        joinedload(Fixture.stats)
-    ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
+    # Build query and get fixtures
+    query = build_upcoming_fixtures_query(db, days_ahead, requested_league_ids)
+    total, fixtures = get_fixtures_with_stats(query, limit, offset)
 
     result_fixtures = []
     for fixture in fixtures:
-        # Use already-loaded stats from joinedload (NO additional queries!)
-        home_yellow = [s.yellow_cards for s in fixture.stats if s.team_id == fixture.home_team_id and s.yellow_cards is not None]
-        home_yellow_avg = sum(home_yellow) / len(home_yellow) if home_yellow else DEFAULT_HOME_YELLOW_CARDS
-
-        away_yellow = [s.yellow_cards for s in fixture.stats if s.team_id == fixture.away_team_id and s.yellow_cards is not None]
-        away_yellow_avg = sum(away_yellow) / len(away_yellow) if away_yellow else DEFAULT_AWAY_YELLOW_CARDS
-
-        home_red = [s.red_cards for s in fixture.stats if s.team_id == fixture.home_team_id and s.red_cards is not None]
-        home_red_avg = sum(home_red) / len(home_red) if home_red else DEFAULT_HOME_RED_CARDS
-
-        away_red = [s.red_cards for s in fixture.stats if s.team_id == fixture.away_team_id and s.red_cards is not None]
-        away_red_avg = sum(away_red) / len(away_red) if away_red else DEFAULT_AWAY_RED_CARDS
+        # Calculate card statistics from pre-loaded stats
+        home_yellow_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'yellow_cards', DEFAULT_HOME_YELLOW_CARDS)
+        away_yellow_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'yellow_cards', DEFAULT_AWAY_YELLOW_CARDS)
+        home_red_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'red_cards', DEFAULT_HOME_RED_CARDS)
+        away_red_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'red_cards', DEFAULT_AWAY_RED_CARDS)
 
         fixture_data = {
-            "fixture_id": fixture.id,
-            "league_name": fixture.league.name if fixture.league else f"League {fixture.league_id}",
-            "match_date": fixture.match_date,
-            "home_team": fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
-            "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
-            "status": fixture.status,
+            **extract_fixture_display_data(fixture),
             "cards_stats": {
                 "total_cards": {
                     "over_3_5": {"odds": "1.90", "probability": "52.6%"},
@@ -341,65 +226,23 @@ async def get_shots_statistics(
     """
     Get shots on target statistics for upcoming fixtures.
     """
-    # Handle league filtering
-    requested_league_ids = []
-    if league_ids:
-        requested_league_ids = league_ids
-    elif league_id:
-        requested_league_ids = [league_id]
+    # Validate and normalize league IDs
+    requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)
 
-    # Validate league count
-    if requested_league_ids:
-        validate_league_count(
-            league_ids=requested_league_ids,
-            user_tier=current_user.tier,
-            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
-            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
-        )
-
-    now = datetime.utcnow()
-    end_date = now + timedelta(days=days_ahead)
-
-    query = db.query(Fixture).filter(
-        Fixture.match_date >= now,
-        Fixture.match_date <= end_date,
-        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
-    )
-
-    if requested_league_ids:
-        query = query.filter(Fixture.league_id.in_(requested_league_ids))
-
-    total = query.count()
-
-    fixtures = query.options(
-        joinedload(Fixture.league),
-        joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team),
-        joinedload(Fixture.stats)
-    ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
+    # Build query and get fixtures
+    query = build_upcoming_fixtures_query(db, days_ahead, requested_league_ids)
+    total, fixtures = get_fixtures_with_stats(query, limit, offset)
 
     result_fixtures = []
     for fixture in fixtures:
-        # Use already-loaded stats from joinedload (NO additional queries!)
-        home_total = [s.total_shots for s in fixture.stats if s.team_id == fixture.home_team_id and s.total_shots is not None]
-        home_shots_total = sum(home_total) / len(home_total) if home_total else DEFAULT_HOME_TOTAL_SHOTS
-
-        home_on_goal = [s.shots_on_goal for s in fixture.stats if s.team_id == fixture.home_team_id and s.shots_on_goal is not None]
-        home_shots_on_goal = sum(home_on_goal) / len(home_on_goal) if home_on_goal else DEFAULT_HOME_SHOTS_ON_GOAL
-
-        away_total = [s.total_shots for s in fixture.stats if s.team_id == fixture.away_team_id and s.total_shots is not None]
-        away_shots_total = sum(away_total) / len(away_total) if away_total else DEFAULT_AWAY_TOTAL_SHOTS
-
-        away_on_goal = [s.shots_on_goal for s in fixture.stats if s.team_id == fixture.away_team_id and s.shots_on_goal is not None]
-        away_shots_on_goal = sum(away_on_goal) / len(away_on_goal) if away_on_goal else DEFAULT_AWAY_SHOTS_ON_GOAL
+        # Calculate shot statistics from pre-loaded stats
+        home_shots_total = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'total_shots', DEFAULT_HOME_TOTAL_SHOTS)
+        home_shots_on_goal = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'shots_on_goal', DEFAULT_HOME_SHOTS_ON_GOAL)
+        away_shots_total = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'total_shots', DEFAULT_AWAY_TOTAL_SHOTS)
+        away_shots_on_goal = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'shots_on_goal', DEFAULT_AWAY_SHOTS_ON_GOAL)
 
         fixture_data = {
-            "fixture_id": fixture.id,
-            "league_name": fixture.league.name if fixture.league else f"League {fixture.league_id}",
-            "match_date": fixture.match_date,
-            "home_team": fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
-            "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
-            "status": fixture.status,
+            **extract_fixture_display_data(fixture),
             "shots_stats": {
                 "total_shots": {
                     "over_20_5": {"odds": "1.85", "probability": "54.1%"},
@@ -438,59 +281,21 @@ async def get_fouls_statistics(
     """
     Get fouls and faults statistics for upcoming fixtures.
     """
-    # Handle league filtering
-    requested_league_ids = []
-    if league_ids:
-        requested_league_ids = league_ids
-    elif league_id:
-        requested_league_ids = [league_id]
+    # Validate and normalize league IDs
+    requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)
 
-    # Validate league count
-    if requested_league_ids:
-        validate_league_count(
-            league_ids=requested_league_ids,
-            user_tier=current_user.tier,
-            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
-            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
-        )
-
-    now = datetime.utcnow()
-    end_date = now + timedelta(days=days_ahead)
-
-    query = db.query(Fixture).filter(
-        Fixture.match_date >= now,
-        Fixture.match_date <= end_date,
-        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
-    )
-
-    if requested_league_ids:
-        query = query.filter(Fixture.league_id.in_(requested_league_ids))
-
-    total = query.count()
-
-    fixtures = query.options(
-        joinedload(Fixture.league),
-        joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team),
-        joinedload(Fixture.stats)
-    ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
+    # Build query and get fixtures
+    query = build_upcoming_fixtures_query(db, days_ahead, requested_league_ids)
+    total, fixtures = get_fixtures_with_stats(query, limit, offset)
 
     result_fixtures = []
     for fixture in fixtures:
-        # Use already-loaded stats from joinedload (NO additional queries!)
-        home_fouls = [s.fouls for s in fixture.stats if s.team_id == fixture.home_team_id and s.fouls is not None]
-        home_fouls_avg = sum(home_fouls) / len(home_fouls) if home_fouls else DEFAULT_HOME_FOULS
-
-        away_fouls = [s.fouls for s in fixture.stats if s.team_id == fixture.away_team_id and s.fouls is not None]
-        away_fouls_avg = sum(away_fouls) / len(away_fouls) if away_fouls else DEFAULT_AWAY_FOULS
+        # Calculate foul statistics from pre-loaded stats
+        home_fouls_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'fouls', DEFAULT_HOME_FOULS)
+        away_fouls_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'fouls', DEFAULT_AWAY_FOULS)
 
         fixture_data = {
-            "fixture_id": fixture.id,
-            "league_name": fixture.league.name if fixture.league else f"League {fixture.league_id}",
-            "match_date": fixture.match_date,
-            "home_team": fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
-            "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
-            "status": fixture.status,
+            **extract_fixture_display_data(fixture),
             "fouls_stats": {
                 "total_fouls": {
                     "over_22_5": {"odds": "1.90", "probability": "52.6%"},
@@ -531,66 +336,25 @@ async def get_offsides_statistics(
     """
     Get offside statistics for upcoming fixtures.
     """
-    # Handle league filtering
-    requested_league_ids = []
-    if league_ids:
-        requested_league_ids = league_ids
-    elif league_id:
-        requested_league_ids = [league_id]
+    # Validate and normalize league IDs
+    requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)
 
-    # Validate league count
-    if requested_league_ids:
-        validate_league_count(
-            league_ids=requested_league_ids,
-            user_tier=current_user.tier,
-            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
-            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
-        )
-
-    now = datetime.utcnow()
-    end_date = now + timedelta(days=days_ahead)
-
-    query = db.query(Fixture).filter(
-        Fixture.match_date >= now,
-        Fixture.match_date <= end_date,
-        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
-    )
-
-    if requested_league_ids:
-        query = query.filter(Fixture.league_id.in_(requested_league_ids))
-
-    total = query.count()
-
-    fixtures = query.options(
-        joinedload(Fixture.league),
-        joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team),
-        joinedload(Fixture.stats)
-    ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
+    # Build query and get fixtures
+    query = build_upcoming_fixtures_query(db, days_ahead, requested_league_ids)
+    total, fixtures = get_fixtures_with_stats(query, limit, offset)
 
     result_fixtures = []
     for fixture in fixtures:
-        # Use already-loaded stats from joinedload (NO additional queries!)
-        home_offsides = [s.offsides for s in fixture.stats if s.team_id == fixture.home_team_id and s.offsides is not None]
-        home_offsides_avg = sum(home_offsides) / len(home_offsides) if home_offsides else DEFAULT_HOME_OFFSIDES
-
-        away_offsides = [s.offsides for s in fixture.stats if s.team_id == fixture.away_team_id and s.offsides is not None]
-        away_offsides_avg = sum(away_offsides) / len(away_offsides) if away_offsides else DEFAULT_AWAY_OFFSIDES
+        # Calculate offside and shot statistics from pre-loaded stats
+        home_offsides_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'offsides', DEFAULT_HOME_OFFSIDES)
+        away_offsides_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'offsides', DEFAULT_AWAY_OFFSIDES)
 
         # Get shots for tactical index calculation
-        home_shots_list = [s.total_shots for s in fixture.stats if s.team_id == fixture.home_team_id and s.total_shots is not None]
-        home_shots = sum(home_shots_list) / len(home_shots_list) if home_shots_list else DEFAULT_HOME_SHOTS_FOR_TACTICAL
-
-        away_shots_list = [s.total_shots for s in fixture.stats if s.team_id == fixture.away_team_id and s.total_shots is not None]
-        away_shots = sum(away_shots_list) / len(away_shots_list) if away_shots_list else DEFAULT_AWAY_SHOTS_FOR_TACTICAL
+        home_shots = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'total_shots', DEFAULT_HOME_SHOTS_FOR_TACTICAL)
+        away_shots = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'total_shots', DEFAULT_AWAY_SHOTS_FOR_TACTICAL)
 
         fixture_data = {
-            "fixture_id": fixture.id,
-            "league_name": fixture.league.name if fixture.league else f"League {fixture.league_id}",
-            "match_date": fixture.match_date,
-            "home_team": fixture.home_team.name if fixture.home_team else f"Team {fixture.home_team_id}",
-            "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
-            "status": fixture.status,
+            **extract_fixture_display_data(fixture),
             "offsides_stats": {
                 "total_offsides": {
                     "over_3_5": {"odds": "1.95", "probability": "51.3%"},
