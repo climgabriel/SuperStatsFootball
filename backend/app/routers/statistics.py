@@ -26,7 +26,7 @@ from app.core.constants import (
     SAMPLE_ODDS
 )
 from app.models.user import User
-from app.models.fixture import Fixture, FixtureStats
+from app.models.fixture import Fixture, FixtureStat
 from app.models.league import League
 from app.models.team import Team
 from app.schemas.statistics import (
@@ -80,9 +80,18 @@ async def get_goals_statistics(
     # Transform to response format
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate expected goals from pre-loaded stats
-        home_xg_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'expected_goals', DEFAULT_HOME_XG)
-        away_xg_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'expected_goals', DEFAULT_AWAY_XG)
+        # Calculate goals statistics from historical data
+        home_stats = db.query(FixtureStat).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).all()
+
+        away_stats = db.query(FixtureStat).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).all()
+
+        # Calculate averages (simplified - in production, use more sophisticated calculations)
+        home_xg_avg = sum([s.expected_goals or 0 for s in home_stats]) / max(len(home_stats), 1) if home_stats else 1.5
+        away_xg_avg = sum([s.expected_goals or 0 for s in away_stats]) / max(len(away_stats), 1) if away_stats else 1.2
 
         # Build fixture data with common display fields
         fixture_data = {
@@ -126,9 +135,14 @@ async def get_corners_statistics(
 
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate corner statistics from pre-loaded stats
-        home_stats = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'corners', DEFAULT_HOME_CORNERS)
-        away_stats = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'corners', DEFAULT_AWAY_CORNERS)
+        # Get corner stats from historical data
+        home_stats = db.query(func.avg(FixtureStat.corners)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 6.0
+
+        away_stats = db.query(func.avg(FixtureStat.corners)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 4.5
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
@@ -178,11 +192,22 @@ async def get_cards_statistics(
 
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate card statistics from pre-loaded stats
-        home_yellow_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'yellow_cards', DEFAULT_HOME_YELLOW_CARDS)
-        away_yellow_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'yellow_cards', DEFAULT_AWAY_YELLOW_CARDS)
-        home_red_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'red_cards', DEFAULT_HOME_RED_CARDS)
-        away_red_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'red_cards', DEFAULT_AWAY_RED_CARDS)
+        # Get cards stats
+        home_yellow_avg = db.query(func.avg(FixtureStat.yellow_cards)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 2.1
+
+        away_yellow_avg = db.query(func.avg(FixtureStat.yellow_cards)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 1.9
+
+        home_red_avg = db.query(func.avg(FixtureStat.red_cards)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 0.1
+
+        away_red_avg = db.query(func.avg(FixtureStat.red_cards)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 0.1
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
@@ -235,11 +260,22 @@ async def get_shots_statistics(
 
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate shot statistics from pre-loaded stats
-        home_shots_total = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'total_shots', DEFAULT_HOME_TOTAL_SHOTS)
-        home_shots_on_goal = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'shots_on_goal', DEFAULT_HOME_SHOTS_ON_GOAL)
-        away_shots_total = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'total_shots', DEFAULT_AWAY_TOTAL_SHOTS)
-        away_shots_on_goal = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'shots_on_goal', DEFAULT_AWAY_SHOTS_ON_GOAL)
+        # Get shots stats
+        home_shots_total = db.query(func.avg(FixtureStat.shots_total)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 12.5
+
+        home_shots_on_goal = db.query(func.avg(FixtureStat.shots_on_goal)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 5.2
+
+        away_shots_total = db.query(func.avg(FixtureStat.shots_total)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 9.8
+
+        away_shots_on_goal = db.query(func.avg(FixtureStat.shots_on_goal)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 4.1
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
@@ -290,9 +326,14 @@ async def get_fouls_statistics(
 
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate foul statistics from pre-loaded stats
-        home_fouls_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'fouls', DEFAULT_HOME_FOULS)
-        away_fouls_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'fouls', DEFAULT_AWAY_FOULS)
+        # Get fouls stats
+        home_fouls_avg = db.query(func.avg(FixtureStat.fouls)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 11.2
+
+        away_fouls_avg = db.query(func.avg(FixtureStat.fouls)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 12.3
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
@@ -345,13 +386,23 @@ async def get_offsides_statistics(
 
     result_fixtures = []
     for fixture in fixtures:
-        # Calculate offside and shot statistics from pre-loaded stats
-        home_offsides_avg = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'offsides', DEFAULT_HOME_OFFSIDES)
-        away_offsides_avg = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'offsides', DEFAULT_AWAY_OFFSIDES)
+        # Get offsides stats
+        home_offsides_avg = db.query(func.avg(FixtureStat.offsides)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 2.3
+
+        away_offsides_avg = db.query(func.avg(FixtureStat.offsides)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 1.9
 
         # Get shots for tactical index calculation
-        home_shots = calculate_team_stat_average(fixture.stats, fixture.home_team_id, 'total_shots', DEFAULT_HOME_SHOTS_FOR_TACTICAL)
-        away_shots = calculate_team_stat_average(fixture.stats, fixture.away_team_id, 'total_shots', DEFAULT_AWAY_SHOTS_FOR_TACTICAL)
+        home_shots = db.query(func.avg(FixtureStat.shots_total)).filter(
+            FixtureStat.team_id == fixture.home_team_id
+        ).scalar() or 12.0
+
+        away_shots = db.query(func.avg(FixtureStat.shots_total)).filter(
+            FixtureStat.team_id == fixture.away_team_id
+        ).scalar() or 10.0
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
