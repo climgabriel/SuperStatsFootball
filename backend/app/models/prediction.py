@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Boolean, Float, Text
+from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Boolean, Float, Text, Index
 from datetime import datetime
 import uuid
 
@@ -17,6 +17,16 @@ class Prediction(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     is_admin_model = Column(Boolean, default=False)
 
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        # Get predictions for a fixture by a user
+        Index('ix_prediction_fixture_user', 'fixture_id', 'user_id'),
+        # Get user's prediction history (sorted by date)
+        Index('ix_prediction_user_created', 'user_id', 'created_at'),
+        # Get predictions by model type
+        Index('ix_prediction_model_created', 'model_type', 'created_at'),
+    )
+
     def __repr__(self):
         return f"<Prediction {self.model_type} for fixture {self.fixture_id}>"
 
@@ -34,6 +44,13 @@ class TeamRating(Base):
     home_advantage = Column(Float)
     form_last_5 = Column(Float)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Composite index for most common lookup: team + league + season
+    __table_args__ = (
+        Index('ix_team_rating_lookup', 'team_id', 'league_id', 'season'),
+        # League-specific ratings
+        Index('ix_team_rating_league_season', 'league_id', 'season'),
+    )
 
     def __repr__(self):
         return f"<TeamRating team={self.team_id} elo={self.elo_rating}>"
