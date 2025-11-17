@@ -88,13 +88,9 @@ async def get_goals_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Calculate goals statistics from historical data
-        home_stats = db.query(FixtureStats).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).all()
-
-        away_stats = db.query(FixtureStats).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).all()
+        # Use already-loaded stats from joinedload (NO additional queries!)
+        home_stats = [s for s in fixture.stats if s.team_id == fixture.home_team_id]
+        away_stats = [s for s in fixture.stats if s.team_id == fixture.away_team_id]
 
         # Calculate averages (simplified - in production, use more sophisticated calculations)
         home_xg_avg = sum([s.expected_goals or 0 for s in home_stats]) / max(len(home_stats), 1) if home_stats else 1.5
@@ -190,14 +186,12 @@ async def get_corners_statistics(
 
     result_fixtures = []
     for fixture in fixtures:
-        # Get corner stats from historical data
-        home_stats = db.query(func.avg(FixtureStats.corners)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 6.0
+        # Use already-loaded stats from joinedload (NO additional queries!)
+        home_corners = [s.corners for s in fixture.stats if s.team_id == fixture.home_team_id and s.corners is not None]
+        home_stats = sum(home_corners) / len(home_corners) if home_corners else 6.0
 
-        away_stats = db.query(func.avg(FixtureStats.corners)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 4.5
+        away_corners = [s.corners for s in fixture.stats if s.team_id == fixture.away_team_id and s.corners is not None]
+        away_stats = sum(away_corners) / len(away_corners) if away_corners else 4.5
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -276,27 +270,24 @@ async def get_cards_statistics(
     fixtures = query.options(
         joinedload(Fixture.league),
         joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team)
+        joinedload(Fixture.away_team),
+        joinedload(Fixture.stats)
     ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
 
     result_fixtures = []
     for fixture in fixtures:
-        # Get cards stats
-        home_yellow_avg = db.query(func.avg(FixtureStats.yellow_cards)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 2.1
+        # Use already-loaded stats from joinedload (NO additional queries!)
+        home_yellow = [s.yellow_cards for s in fixture.stats if s.team_id == fixture.home_team_id and s.yellow_cards is not None]
+        home_yellow_avg = sum(home_yellow) / len(home_yellow) if home_yellow else 2.1
 
-        away_yellow_avg = db.query(func.avg(FixtureStats.yellow_cards)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 1.9
+        away_yellow = [s.yellow_cards for s in fixture.stats if s.team_id == fixture.away_team_id and s.yellow_cards is not None]
+        away_yellow_avg = sum(away_yellow) / len(away_yellow) if away_yellow else 1.9
 
-        home_red_avg = db.query(func.avg(FixtureStats.red_cards)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 0.1
+        home_red = [s.red_cards for s in fixture.stats if s.team_id == fixture.home_team_id and s.red_cards is not None]
+        home_red_avg = sum(home_red) / len(home_red) if home_red else 0.1
 
-        away_red_avg = db.query(func.avg(FixtureStats.red_cards)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 0.1
+        away_red = [s.red_cards for s in fixture.stats if s.team_id == fixture.away_team_id and s.red_cards is not None]
+        away_red_avg = sum(away_red) / len(away_red) if away_red else 0.1
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -378,27 +369,24 @@ async def get_shots_statistics(
     fixtures = query.options(
         joinedload(Fixture.league),
         joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team)
+        joinedload(Fixture.away_team),
+        joinedload(Fixture.stats)
     ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
 
     result_fixtures = []
     for fixture in fixtures:
-        # Get shots stats
-        home_shots_total = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 12.5
+        # Use already-loaded stats from joinedload (NO additional queries!)
+        home_total = [s.total_shots for s in fixture.stats if s.team_id == fixture.home_team_id and s.total_shots is not None]
+        home_shots_total = sum(home_total) / len(home_total) if home_total else 12.5
 
-        home_shots_on_goal = db.query(func.avg(FixtureStats.shots_on_goal)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 5.2
+        home_on_goal = [s.shots_on_goal for s in fixture.stats if s.team_id == fixture.home_team_id and s.shots_on_goal is not None]
+        home_shots_on_goal = sum(home_on_goal) / len(home_on_goal) if home_on_goal else 5.2
 
-        away_shots_total = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 9.8
+        away_total = [s.total_shots for s in fixture.stats if s.team_id == fixture.away_team_id and s.total_shots is not None]
+        away_shots_total = sum(away_total) / len(away_total) if away_total else 9.8
 
-        away_shots_on_goal = db.query(func.avg(FixtureStats.shots_on_goal)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 4.1
+        away_on_goal = [s.shots_on_goal for s in fixture.stats if s.team_id == fixture.away_team_id and s.shots_on_goal is not None]
+        away_shots_on_goal = sum(away_on_goal) / len(away_on_goal) if away_on_goal else 4.1
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -478,19 +466,18 @@ async def get_fouls_statistics(
     fixtures = query.options(
         joinedload(Fixture.league),
         joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team)
+        joinedload(Fixture.away_team),
+        joinedload(Fixture.stats)
     ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
 
     result_fixtures = []
     for fixture in fixtures:
-        # Get fouls stats
-        home_fouls_avg = db.query(func.avg(FixtureStats.fouls)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 11.2
+        # Use already-loaded stats from joinedload (NO additional queries!)
+        home_fouls = [s.fouls for s in fixture.stats if s.team_id == fixture.home_team_id and s.fouls is not None]
+        home_fouls_avg = sum(home_fouls) / len(home_fouls) if home_fouls else 11.2
 
-        away_fouls_avg = db.query(func.avg(FixtureStats.fouls)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 12.3
+        away_fouls = [s.fouls for s in fixture.stats if s.team_id == fixture.away_team_id and s.fouls is not None]
+        away_fouls_avg = sum(away_fouls) / len(away_fouls) if away_fouls else 12.3
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -572,28 +559,25 @@ async def get_offsides_statistics(
     fixtures = query.options(
         joinedload(Fixture.league),
         joinedload(Fixture.home_team),
-        joinedload(Fixture.away_team)
+        joinedload(Fixture.away_team),
+        joinedload(Fixture.stats)
     ).order_by(Fixture.match_date).limit(limit).offset(offset).all()
 
     result_fixtures = []
     for fixture in fixtures:
-        # Get offsides stats
-        home_offsides_avg = db.query(func.avg(FixtureStats.offsides)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 2.3
+        # Use already-loaded stats from joinedload (NO additional queries!)
+        home_offsides = [s.offsides for s in fixture.stats if s.team_id == fixture.home_team_id and s.offsides is not None]
+        home_offsides_avg = sum(home_offsides) / len(home_offsides) if home_offsides else 2.3
 
-        away_offsides_avg = db.query(func.avg(FixtureStats.offsides)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 1.9
+        away_offsides = [s.offsides for s in fixture.stats if s.team_id == fixture.away_team_id and s.offsides is not None]
+        away_offsides_avg = sum(away_offsides) / len(away_offsides) if away_offsides else 1.9
 
         # Get shots for tactical index calculation
-        home_shots = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.home_team_id
-        ).scalar() or 12.0
+        home_shots_list = [s.total_shots for s in fixture.stats if s.team_id == fixture.home_team_id and s.total_shots is not None]
+        home_shots = sum(home_shots_list) / len(home_shots_list) if home_shots_list else 12.0
 
-        away_shots = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.away_team_id
-        ).scalar() or 10.0
+        away_shots_list = [s.total_shots for s in fixture.stats if s.team_id == fixture.away_team_id and s.total_shots is not None]
+        away_shots = sum(away_shots_list) / len(away_shots_list) if away_shots_list else 10.0
 
         fixture_data = {
             "fixture_id": fixture.id,

@@ -37,6 +37,7 @@ class Fixture(Base):
 
     # Relationships
     odds = relationship("FixtureOdds", back_populates="fixture", cascade="all, delete-orphan")
+    stats = relationship("FixtureStat", foreign_keys="[FixtureStat.fixture_id]", lazy="select")
 
     def __repr__(self):
         return f"<Fixture {self.id}: {self.home_team_id} vs {self.away_team_id}>"
