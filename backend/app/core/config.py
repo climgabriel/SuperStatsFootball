@@ -84,6 +84,10 @@ class Settings(BaseSettings):
         "ultimate": 999
     }
 
+    # League Search Limits (per query to prevent app crashes)
+    MAX_LEAGUES_PER_SEARCH_REGULAR: int = 5  # Regular users (free-premium)
+    MAX_LEAGUES_PER_SEARCH_ADMIN: int = 10    # Admin users (ultimate)
+
     # ML Models
     ML_MODEL_PATH: str = "app/ml/models"
 

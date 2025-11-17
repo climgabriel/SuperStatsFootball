@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.core.dependencies import get_db, get_current_active_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.fixture import Fixture, FixtureStats
 from app.models.league import League
@@ -17,6 +18,7 @@ from app.schemas.statistics import (
     FoulsListResponse,
     OffsListResponse
 )
+from app.utils.validators import validate_league_count
 
 router = APIRouter()
 
@@ -24,7 +26,8 @@ router = APIRouter()
 @router.get("/goals", response_model=GoalsListResponse)
 async def get_goals_statistics(
     days_ahead: int = Query(7, ge=1, le=30, description="Number of days to look ahead"),
-    league_id: Optional[int] = Query(None, description="Filter by league ID"),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     season: Optional[str] = Query(None, description="Filter by season"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -39,6 +42,22 @@ async def get_goals_statistics(
     - Both Teams To Score (BTTS)
     - Expected Goals (xG)
     """
+    # Handle league filtering (support both single and multiple league IDs)
+    requested_league_ids = []
+    if league_ids:
+        requested_league_ids = league_ids
+    elif league_id:
+        requested_league_ids = [league_id]
+
+    # Validate league count to prevent app crashes
+    if requested_league_ids:
+        validate_league_count(
+            league_ids=requested_league_ids,
+            user_tier=current_user.tier,
+            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+        )
+
     # Calculate date range
     now = datetime.utcnow()
     end_date = now + timedelta(days=days_ahead)
@@ -50,8 +69,8 @@ async def get_goals_statistics(
         Fixture.status.in_(["NS", "TBD"])
     )
 
-    if league_id:
-        query = query.filter(Fixture.league_id == league_id)
+    if requested_league_ids:
+        query = query.filter(Fixture.league_id.in_(requested_league_ids))
     if season:
         query = query.filter(Fixture.season == season)
 
@@ -122,7 +141,8 @@ async def get_goals_statistics(
 @router.get("/corners", response_model=CornersListResponse)
 async def get_corners_statistics(
     days_ahead: int = Query(7, ge=1, le=30),
-    league_id: Optional[int] = Query(None),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_active_user),
@@ -131,6 +151,22 @@ async def get_corners_statistics(
     """
     Get corners statistics for upcoming fixtures.
     """
+    # Handle league filtering
+    requested_league_ids = []
+    if league_ids:
+        requested_league_ids = league_ids
+    elif league_id:
+        requested_league_ids = [league_id]
+
+    # Validate league count
+    if requested_league_ids:
+        validate_league_count(
+            league_ids=requested_league_ids,
+            user_tier=current_user.tier,
+            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+        )
+
     now = datetime.utcnow()
     end_date = now + timedelta(days=days_ahead)
 
@@ -140,8 +176,8 @@ async def get_corners_statistics(
         Fixture.status.in_(["NS", "TBD"])
     )
 
-    if league_id:
-        query = query.filter(Fixture.league_id == league_id)
+    if requested_league_ids:
+        query = query.filter(Fixture.league_id.in_(requested_league_ids))
 
     total = query.count()
 
@@ -197,7 +233,8 @@ async def get_corners_statistics(
 @router.get("/cards", response_model=CardsListResponse)
 async def get_cards_statistics(
     days_ahead: int = Query(7, ge=1, le=30),
-    league_id: Optional[int] = Query(None),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_active_user),
@@ -206,6 +243,22 @@ async def get_cards_statistics(
     """
     Get yellow and red card statistics for upcoming fixtures.
     """
+    # Handle league filtering
+    requested_league_ids = []
+    if league_ids:
+        requested_league_ids = league_ids
+    elif league_id:
+        requested_league_ids = [league_id]
+
+    # Validate league count
+    if requested_league_ids:
+        validate_league_count(
+            league_ids=requested_league_ids,
+            user_tier=current_user.tier,
+            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+        )
+
     now = datetime.utcnow()
     end_date = now + timedelta(days=days_ahead)
 
@@ -215,8 +268,8 @@ async def get_cards_statistics(
         Fixture.status.in_(["NS", "TBD"])
     )
 
-    if league_id:
-        query = query.filter(Fixture.league_id == league_id)
+    if requested_league_ids:
+        query = query.filter(Fixture.league_id.in_(requested_league_ids))
 
     total = query.count()
 
@@ -282,7 +335,8 @@ async def get_cards_statistics(
 @router.get("/shots", response_model=ShotsListResponse)
 async def get_shots_statistics(
     days_ahead: int = Query(7, ge=1, le=30),
-    league_id: Optional[int] = Query(None),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_active_user),
@@ -291,6 +345,22 @@ async def get_shots_statistics(
     """
     Get shots on target statistics for upcoming fixtures.
     """
+    # Handle league filtering
+    requested_league_ids = []
+    if league_ids:
+        requested_league_ids = league_ids
+    elif league_id:
+        requested_league_ids = [league_id]
+
+    # Validate league count
+    if requested_league_ids:
+        validate_league_count(
+            league_ids=requested_league_ids,
+            user_tier=current_user.tier,
+            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+        )
+
     now = datetime.utcnow()
     end_date = now + timedelta(days=days_ahead)
 
@@ -300,8 +370,8 @@ async def get_shots_statistics(
         Fixture.status.in_(["NS", "TBD"])
     )
 
-    if league_id:
-        query = query.filter(Fixture.league_id == league_id)
+    if requested_league_ids:
+        query = query.filter(Fixture.league_id.in_(requested_league_ids))
 
     total = query.count()
 
@@ -365,7 +435,8 @@ async def get_shots_statistics(
 @router.get("/fouls", response_model=FoulsListResponse)
 async def get_fouls_statistics(
     days_ahead: int = Query(7, ge=1, le=30),
-    league_id: Optional[int] = Query(None),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_active_user),
@@ -374,6 +445,22 @@ async def get_fouls_statistics(
     """
     Get fouls and faults statistics for upcoming fixtures.
     """
+    # Handle league filtering
+    requested_league_ids = []
+    if league_ids:
+        requested_league_ids = league_ids
+    elif league_id:
+        requested_league_ids = [league_id]
+
+    # Validate league count
+    if requested_league_ids:
+        validate_league_count(
+            league_ids=requested_league_ids,
+            user_tier=current_user.tier,
+            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+        )
+
     now = datetime.utcnow()
     end_date = now + timedelta(days=days_ahead)
 
@@ -383,8 +470,8 @@ async def get_fouls_statistics(
         Fixture.status.in_(["NS", "TBD"])
     )
 
-    if league_id:
-        query = query.filter(Fixture.league_id == league_id)
+    if requested_league_ids:
+        query = query.filter(Fixture.league_id.in_(requested_league_ids))
 
     total = query.count()
 
@@ -442,7 +529,8 @@ async def get_fouls_statistics(
 @router.get("/offsides", response_model=OffsListResponse)
 async def get_offsides_statistics(
     days_ahead: int = Query(7, ge=1, le=30),
-    league_id: Optional[int] = Query(None),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_active_user),
@@ -451,6 +539,22 @@ async def get_offsides_statistics(
     """
     Get offside statistics for upcoming fixtures.
     """
+    # Handle league filtering
+    requested_league_ids = []
+    if league_ids:
+        requested_league_ids = league_ids
+    elif league_id:
+        requested_league_ids = [league_id]
+
+    # Validate league count
+    if requested_league_ids:
+        validate_league_count(
+            league_ids=requested_league_ids,
+            user_tier=current_user.tier,
+            max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+            max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+        )
+
     now = datetime.utcnow()
     end_date = now + timedelta(days=days_ahead)
 
@@ -460,8 +564,8 @@ async def get_offsides_statistics(
         Fixture.status.in_(["NS", "TBD"])
     )
 
-    if league_id:
-        query = query.filter(Fixture.league_id == league_id)
+    if requested_league_ids:
+        query = query.filter(Fixture.league_id.in_(requested_league_ids))
 
     total = query.count()
 
