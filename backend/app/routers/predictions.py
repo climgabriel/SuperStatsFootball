@@ -26,11 +26,11 @@ async def calculate_prediction(
     Calculate prediction for a fixture using all tier-appropriate models.
 
     Available models depend on user's subscription tier:
-    - Free: poisson
-    - Starter: poisson, dixon_coles
-    - Pro: poisson, dixon_coles, elo
-    - Premium: poisson, dixon_coles, elo, logistic
-    - Ultimate: all models including random_forest, xgboost
+    - Free (Plan 1): poisson
+    - Starter (Plan 2): poisson, dixon_coles
+    - Pro (Plan 3): poisson, dixon_coles, bivariate_poisson
+    - Premium (Plan 4): poisson, dixon_coles, bivariate_poisson, elo
+    - Ultimate (Plan 5/Admin): all 5 models including glicko
     """
     # Check if fixture exists
     fixture = db.query(Fixture).filter(Fixture.id == prediction_request.fixture_id).first()

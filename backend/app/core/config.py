@@ -71,9 +71,9 @@ class Settings(BaseSettings):
     TIER_MODELS: dict = {
         "free": ["poisson"],
         "starter": ["poisson", "dixon_coles"],
-        "pro": ["poisson", "dixon_coles", "elo"],
-        "premium": ["poisson", "dixon_coles", "elo", "logistic"],
-        "ultimate": ["poisson", "dixon_coles", "elo", "logistic", "random_forest", "xgboost"]
+        "pro": ["poisson", "dixon_coles", "bivariate_poisson"],
+        "premium": ["poisson", "dixon_coles", "bivariate_poisson", "elo"],
+        "ultimate": ["poisson", "dixon_coles", "bivariate_poisson", "elo", "glicko"]
     }
 
     TIER_LEAGUE_LIMITS: dict = {

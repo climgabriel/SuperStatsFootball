@@ -38,7 +38,7 @@ def validate_tier(tier: str) -> bool:
 
 def validate_model_type(model_type: str) -> bool:
     """Validate prediction model type."""
-    valid_models = ["poisson", "dixon_coles", "elo", "logistic", "random_forest", "xgboost"]
+    valid_models = ["poisson", "dixon_coles", "bivariate_poisson", "elo", "glicko"]
     return model_type.lower() in valid_models
 
 

@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 STATISTICAL_MODEL_TIER_MAP = {
     "free": ["poisson"],
     "starter": ["poisson", "dixon_coles"],
-    "pro": ["poisson", "dixon_coles", "elo"],
-    "premium": ["poisson", "dixon_coles", "elo", "logistic"],
-    "ultimate": ["poisson", "dixon_coles", "elo", "logistic", "random_forest", "xgboost"]
+    "pro": ["poisson", "dixon_coles", "bivariate_poisson"],
+    "premium": ["poisson", "dixon_coles", "bivariate_poisson", "elo"],
+    "ultimate": ["poisson", "dixon_coles", "bivariate_poisson", "elo", "glicko"]
 }
 
 
@@ -221,7 +221,7 @@ class PredictionPipeline:
                 away_defense=away_stats["defense_strength"]
             )
             predictions["poisson"] = poisson_pred
-                models_used.append("poisson")
+            models_used.append("poisson")
 
         # Run Dixon-Coles (starter+)
         if "dixon_coles" in available_statistical:
@@ -232,7 +232,7 @@ class PredictionPipeline:
                 away_defense=away_stats["defense_strength"]
             )
             predictions["dixon_coles"] = dc_pred
-                models_used.append("dixon_coles")
+            models_used.append("dixon_coles")
 
         # Run Elo (pro+)
         if "elo" in available_statistical:
