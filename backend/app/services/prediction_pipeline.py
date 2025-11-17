@@ -26,8 +26,8 @@ from app.ml.statistical.elo import EloModel
 logger = logging.getLogger(__name__)
 
 
-# Model tier mapping
-MODEL_TIER_MAP = {
+# Statistical model tier mapping (always available as fallback)
+STATISTICAL_MODEL_TIER_MAP = {
     "free": ["poisson"],
     "starter": ["poisson", "dixon_coles"],
     "pro": ["poisson", "dixon_coles", "elo"],
@@ -39,11 +39,33 @@ MODEL_TIER_MAP = {
 class PredictionPipeline:
     """Service for generating predictions from synced data."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, use_ml_models: bool = True):
+        """
+        Initialize Prediction Pipeline.
+
+        Args:
+            db: Database session
+            use_ml_models: Whether to use ML models (default: True)
+        """
         self.db = db
+        self.use_ml_models = use_ml_models
+
+        # Statistical models (always available)
         self.poisson = PoissonModel()
         self.dixon_coles = DixonColesModel()
         self.elo = EloModel()
+
+        # ML models (lazy loaded)
+        self._ml_service = None
+        if use_ml_models:
+            try:
+                from app.services.ml_prediction_service import MLPredictionService
+                self._ml_service = MLPredictionService(db)
+                logger.info("✅ ML Prediction Service initialized with 22 models")
+            except Exception as e:
+                logger.warning(f"⚠️  ML models not available: {str(e)}")
+                logger.info("📊 Falling back to statistical models only")
+                self.use_ml_models = False
 
     def calculate_team_stats(
         self,
@@ -185,12 +207,13 @@ class PredictionPipeline:
         )
 
         # Get available models for tier
-        available_models = MODEL_TIER_MAP.get(user_tier, ["poisson"])
+        available_statistical = STATISTICAL_MODEL_TIER_MAP.get(user_tier, ["poisson"])
 
         predictions = {}
+        models_used = []
 
         # Run Poisson model (available to all tiers)
-        if "poisson" in available_models:
+        if "poisson" in available_statistical:
             poisson_pred = self.poisson.predict(
                 home_attack=home_stats["attack_strength"],
                 home_defense=home_stats["defense_strength"],
@@ -198,9 +221,10 @@ class PredictionPipeline:
                 away_defense=away_stats["defense_strength"]
             )
             predictions["poisson"] = poisson_pred
+                models_used.append("poisson")
 
         # Run Dixon-Coles (starter+)
-        if "dixon_coles" in available_models:
+        if "dixon_coles" in available_statistical:
             dc_pred = self.dixon_coles.predict(
                 home_attack=home_stats["attack_strength"],
                 home_defense=home_stats["defense_strength"],
@@ -208,16 +232,42 @@ class PredictionPipeline:
                 away_defense=away_stats["defense_strength"]
             )
             predictions["dixon_coles"] = dc_pred
+                models_used.append("dixon_coles")
 
         # Run Elo (pro+)
-        if "elo" in available_models:
-            home_rating = self._get_team_rating(fixture.home_team_id, fixture.league_id, fixture.season)
-            away_rating = self._get_team_rating(fixture.away_team_id, fixture.league_id, fixture.season)
+        if "elo" in available_statistical:
+            try:
+                home_rating = self._get_team_rating(fixture.home_team_id, fixture.league_id, fixture.season)
+                away_rating = self._get_team_rating(fixture.away_team_id, fixture.league_id, fixture.season)
 
-            elo_pred = self.elo.predict(home_rating, away_rating)
-            predictions["elo"] = elo_pred
+                elo_pred = self.elo.predict(home_rating, away_rating)
+                predictions["elo"] = elo_pred
+                models_used.append("elo")
+            except Exception as e:
+                logger.error(f"Elo prediction error: {str(e)}")
 
-        # Calculate consensus prediction
+        # ==============================================
+        # PART 2: MACHINE LEARNING MODELS (22 models)
+        # ==============================================
+
+        ml_predictions = {}
+        if self.use_ml_models and self._ml_service:
+            try:
+                ml_result = self._ml_service.predict(
+                    fixture_id=fixture_id,
+                    user_tier=user_tier
+                )
+
+                # Merge ML predictions
+                ml_predictions = ml_result.get("predictions", {})
+                predictions.update(ml_predictions)
+                models_used.extend(ml_result.get("models_used", []))
+
+                logger.info(f"🤖 ML models used: {len(ml_predictions)} for tier '{user_tier}'")
+            except Exception as e:
+                logger.warning(f"⚠️  ML prediction failed: {str(e)}")
+
+        # Calculate unified consensus from ALL predictions
         consensus = self._calculate_consensus(predictions)
 
         result = {
@@ -231,7 +281,11 @@ class PredictionPipeline:
             "predictions": predictions,
             "consensus": consensus,
             "tier": user_tier,
-            "models_used": available_models
+            "models_used": models_used,
+            "total_models": len(predictions),
+            "statistical_models": len([m for m in models_used if m in ["poisson", "dixon_coles", "elo"]]),
+            "ml_models": len(ml_predictions),
+            "has_ml_predictions": len(ml_predictions) > 0
         }
 
         return result
