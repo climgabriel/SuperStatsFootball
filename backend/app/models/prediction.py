@@ -3,6 +3,7 @@ from datetime import datetime
 import uuid
 
 from app.db.base import Base
+from app.core.constants import DEFAULT_ELO_RATING
 
 
 class Prediction(Base):
@@ -38,7 +39,7 @@ class TeamRating(Base):
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
     league_id = Column(Integer, ForeignKey("leagues.id"), nullable=False, index=True)
     season = Column(Integer, nullable=False)
-    elo_rating = Column(Float, default=1500.0)
+    elo_rating = Column(Float, default=DEFAULT_ELO_RATING)
     offensive_strength = Column(Float)
     defensive_strength = Column(Float)
     home_advantage = Column(Float)

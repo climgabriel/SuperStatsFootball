@@ -6,6 +6,25 @@ from datetime import datetime, timedelta
 
 from app.core.dependencies import get_db, get_current_active_user
 from app.core.config import settings
+from app.core.constants import (
+    DEFAULT_DAYS_AHEAD, MIN_DAYS_AHEAD, MAX_DAYS_AHEAD,
+    DEFAULT_LIMIT, MAX_LIMIT, DEFAULT_OFFSET,
+    DEFAULT_HOME_XG, DEFAULT_AWAY_XG,
+    DEFAULT_HOME_CORNERS, DEFAULT_AWAY_CORNERS,
+    DEFAULT_HOME_YELLOW_CARDS, DEFAULT_AWAY_YELLOW_CARDS,
+    DEFAULT_HOME_RED_CARDS, DEFAULT_AWAY_RED_CARDS,
+    DEFAULT_HOME_TOTAL_SHOTS, DEFAULT_AWAY_TOTAL_SHOTS,
+    DEFAULT_HOME_SHOTS_ON_GOAL, DEFAULT_AWAY_SHOTS_ON_GOAL,
+    DEFAULT_HOME_FOULS, DEFAULT_AWAY_FOULS,
+    DEFAULT_HOME_OFFSIDES, DEFAULT_AWAY_OFFSIDES,
+    DEFAULT_HOME_SHOTS_FOR_TACTICAL, DEFAULT_AWAY_SHOTS_FOR_TACTICAL,
+    OFFSIDES_HIGH_LINE_THRESHOLD,
+    UPCOMING_FIXTURE_STATUSES,
+    MIN_SAMPLE_SIZE,
+    DISCIPLINE_INDEX_DIVISOR,
+    TACTICAL_INDEX_MULTIPLIER,
+    SAMPLE_ODDS
+)
 from app.models.user import User
 from app.models.fixture import Fixture, FixtureStats
 from app.models.league import League
@@ -25,12 +44,12 @@ router = APIRouter()
 
 @router.get("/goals", response_model=GoalsListResponse)
 async def get_goals_statistics(
-    days_ahead: int = Query(7, ge=1, le=30, description="Number of days to look ahead"),
+    days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD, description="Number of days to look ahead"),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
     league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     season: Optional[str] = Query(None, description="Filter by season"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_SAMPLE_SIZE, le=MAX_LIMIT),
+    offset: int = Query(DEFAULT_OFFSET, ge=DEFAULT_OFFSET),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -66,7 +85,7 @@ async def get_goals_statistics(
     query = db.query(Fixture).filter(
         Fixture.match_date >= now,
         Fixture.match_date <= end_date,
-        Fixture.status.in_(["NS", "TBD"])
+        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
     )
 
     if requested_league_ids:
@@ -93,8 +112,8 @@ async def get_goals_statistics(
         away_stats = [s for s in fixture.stats if s.team_id == fixture.away_team_id]
 
         # Calculate averages (simplified - in production, use more sophisticated calculations)
-        home_xg_avg = sum([s.expected_goals or 0 for s in home_stats]) / max(len(home_stats), 1) if home_stats else 1.5
-        away_xg_avg = sum([s.expected_goals or 0 for s in away_stats]) / max(len(away_stats), 1) if away_stats else 1.2
+        home_xg_avg = sum([s.expected_goals or 0 for s in home_stats]) / max(len(home_stats), MIN_SAMPLE_SIZE) if home_stats else DEFAULT_HOME_XG
+        away_xg_avg = sum([s.expected_goals or 0 for s in away_stats]) / max(len(away_stats), MIN_SAMPLE_SIZE) if away_stats else DEFAULT_AWAY_XG
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -104,24 +123,10 @@ async def get_goals_statistics(
             "away_team": fixture.away_team.name if fixture.away_team else f"Team {fixture.away_team_id}",
             "status": fixture.status,
             "goals_stats": {
-                "over_under_2_5": {
-                    "over": {"odds": "1.85", "probability": "54.2%"},
-                    "under": {"odds": "1.95", "probability": "45.8%"},
-                    "prediction": "Over 2.5"
-                },
-                "over_under_1_5": {
-                    "over": {"odds": "1.25", "probability": "78.5%"},
-                    "under": {"odds": "3.75", "probability": "21.5%"}
-                },
-                "over_under_3_5": {
-                    "over": {"odds": "2.50", "probability": "38.2%"},
-                    "under": {"odds": "1.50", "probability": "61.8%"}
-                },
-                "btts": {
-                    "yes": {"odds": "1.65", "probability": "62.5%"},
-                    "no": {"odds": "2.20", "probability": "37.5%"},
-                    "prediction": "Yes"
-                },
+                "over_under_2_5": {**SAMPLE_ODDS["over_under_2_5"], "prediction": "Over 2.5"},
+                "over_under_1_5": SAMPLE_ODDS["over_under_1_5"],
+                "over_under_3_5": SAMPLE_ODDS["over_under_3_5"],
+                "btts": {**SAMPLE_ODDS["btts"], "prediction": "Yes"},
                 "total_goals": {
                     "predicted": f"{home_xg_avg + away_xg_avg:.1f}",
                     "home_expected": f"{home_xg_avg:.1f}",
@@ -136,11 +141,11 @@ async def get_goals_statistics(
 
 @router.get("/corners", response_model=CornersListResponse)
 async def get_corners_statistics(
-    days_ahead: int = Query(7, ge=1, le=30),
+    days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
     league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_SAMPLE_SIZE, le=MAX_LIMIT),
+    offset: int = Query(DEFAULT_OFFSET, ge=DEFAULT_OFFSET),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -169,7 +174,7 @@ async def get_corners_statistics(
     query = db.query(Fixture).filter(
         Fixture.match_date >= now,
         Fixture.match_date <= end_date,
-        Fixture.status.in_(["NS", "TBD"])
+        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
     )
 
     if requested_league_ids:
@@ -188,10 +193,10 @@ async def get_corners_statistics(
     for fixture in fixtures:
         # Use already-loaded stats from joinedload (NO additional queries!)
         home_corners = [s.corners for s in fixture.stats if s.team_id == fixture.home_team_id and s.corners is not None]
-        home_stats = sum(home_corners) / len(home_corners) if home_corners else 6.0
+        home_stats = sum(home_corners) / len(home_corners) if home_corners else DEFAULT_HOME_CORNERS
 
         away_corners = [s.corners for s in fixture.stats if s.team_id == fixture.away_team_id and s.corners is not None]
-        away_stats = sum(away_corners) / len(away_corners) if away_corners else 4.5
+        away_stats = sum(away_corners) / len(away_corners) if away_corners else DEFAULT_AWAY_CORNERS
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -226,11 +231,11 @@ async def get_corners_statistics(
 
 @router.get("/cards", response_model=CardsListResponse)
 async def get_cards_statistics(
-    days_ahead: int = Query(7, ge=1, le=30),
+    days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
     league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_SAMPLE_SIZE, le=MAX_LIMIT),
+    offset: int = Query(DEFAULT_OFFSET, ge=DEFAULT_OFFSET),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -259,7 +264,7 @@ async def get_cards_statistics(
     query = db.query(Fixture).filter(
         Fixture.match_date >= now,
         Fixture.match_date <= end_date,
-        Fixture.status.in_(["NS", "TBD"])
+        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
     )
 
     if requested_league_ids:
@@ -278,16 +283,16 @@ async def get_cards_statistics(
     for fixture in fixtures:
         # Use already-loaded stats from joinedload (NO additional queries!)
         home_yellow = [s.yellow_cards for s in fixture.stats if s.team_id == fixture.home_team_id and s.yellow_cards is not None]
-        home_yellow_avg = sum(home_yellow) / len(home_yellow) if home_yellow else 2.1
+        home_yellow_avg = sum(home_yellow) / len(home_yellow) if home_yellow else DEFAULT_HOME_YELLOW_CARDS
 
         away_yellow = [s.yellow_cards for s in fixture.stats if s.team_id == fixture.away_team_id and s.yellow_cards is not None]
-        away_yellow_avg = sum(away_yellow) / len(away_yellow) if away_yellow else 1.9
+        away_yellow_avg = sum(away_yellow) / len(away_yellow) if away_yellow else DEFAULT_AWAY_YELLOW_CARDS
 
         home_red = [s.red_cards for s in fixture.stats if s.team_id == fixture.home_team_id and s.red_cards is not None]
-        home_red_avg = sum(home_red) / len(home_red) if home_red else 0.1
+        home_red_avg = sum(home_red) / len(home_red) if home_red else DEFAULT_HOME_RED_CARDS
 
         away_red = [s.red_cards for s in fixture.stats if s.team_id == fixture.away_team_id and s.red_cards is not None]
-        away_red_avg = sum(away_red) / len(away_red) if away_red else 0.1
+        away_red_avg = sum(away_red) / len(away_red) if away_red else DEFAULT_AWAY_RED_CARDS
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -325,11 +330,11 @@ async def get_cards_statistics(
 
 @router.get("/shots", response_model=ShotsListResponse)
 async def get_shots_statistics(
-    days_ahead: int = Query(7, ge=1, le=30),
+    days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
     league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_SAMPLE_SIZE, le=MAX_LIMIT),
+    offset: int = Query(DEFAULT_OFFSET, ge=DEFAULT_OFFSET),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -358,7 +363,7 @@ async def get_shots_statistics(
     query = db.query(Fixture).filter(
         Fixture.match_date >= now,
         Fixture.match_date <= end_date,
-        Fixture.status.in_(["NS", "TBD"])
+        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
     )
 
     if requested_league_ids:
@@ -377,16 +382,16 @@ async def get_shots_statistics(
     for fixture in fixtures:
         # Use already-loaded stats from joinedload (NO additional queries!)
         home_total = [s.total_shots for s in fixture.stats if s.team_id == fixture.home_team_id and s.total_shots is not None]
-        home_shots_total = sum(home_total) / len(home_total) if home_total else 12.5
+        home_shots_total = sum(home_total) / len(home_total) if home_total else DEFAULT_HOME_TOTAL_SHOTS
 
         home_on_goal = [s.shots_on_goal for s in fixture.stats if s.team_id == fixture.home_team_id and s.shots_on_goal is not None]
-        home_shots_on_goal = sum(home_on_goal) / len(home_on_goal) if home_on_goal else 5.2
+        home_shots_on_goal = sum(home_on_goal) / len(home_on_goal) if home_on_goal else DEFAULT_HOME_SHOTS_ON_GOAL
 
         away_total = [s.total_shots for s in fixture.stats if s.team_id == fixture.away_team_id and s.total_shots is not None]
-        away_shots_total = sum(away_total) / len(away_total) if away_total else 9.8
+        away_shots_total = sum(away_total) / len(away_total) if away_total else DEFAULT_AWAY_TOTAL_SHOTS
 
         away_on_goal = [s.shots_on_goal for s in fixture.stats if s.team_id == fixture.away_team_id and s.shots_on_goal is not None]
-        away_shots_on_goal = sum(away_on_goal) / len(away_on_goal) if away_on_goal else 4.1
+        away_shots_on_goal = sum(away_on_goal) / len(away_on_goal) if away_on_goal else DEFAULT_AWAY_SHOTS_ON_GOAL
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -422,11 +427,11 @@ async def get_shots_statistics(
 
 @router.get("/fouls", response_model=FoulsListResponse)
 async def get_fouls_statistics(
-    days_ahead: int = Query(7, ge=1, le=30),
+    days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
     league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_SAMPLE_SIZE, le=MAX_LIMIT),
+    offset: int = Query(DEFAULT_OFFSET, ge=DEFAULT_OFFSET),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -455,7 +460,7 @@ async def get_fouls_statistics(
     query = db.query(Fixture).filter(
         Fixture.match_date >= now,
         Fixture.match_date <= end_date,
-        Fixture.status.in_(["NS", "TBD"])
+        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
     )
 
     if requested_league_ids:
@@ -474,10 +479,10 @@ async def get_fouls_statistics(
     for fixture in fixtures:
         # Use already-loaded stats from joinedload (NO additional queries!)
         home_fouls = [s.fouls for s in fixture.stats if s.team_id == fixture.home_team_id and s.fouls is not None]
-        home_fouls_avg = sum(home_fouls) / len(home_fouls) if home_fouls else 11.2
+        home_fouls_avg = sum(home_fouls) / len(home_fouls) if home_fouls else DEFAULT_HOME_FOULS
 
         away_fouls = [s.fouls for s in fixture.stats if s.team_id == fixture.away_team_id and s.fouls is not None]
-        away_fouls_avg = sum(away_fouls) / len(away_fouls) if away_fouls else 12.3
+        away_fouls_avg = sum(away_fouls) / len(away_fouls) if away_fouls else DEFAULT_AWAY_FOULS
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -503,8 +508,8 @@ async def get_fouls_statistics(
                     "diff": f"{away_fouls_avg - home_fouls_avg:+.1f}"
                 },
                 "discipline_index": {
-                    "home": f"{(home_fouls_avg / 4):.1f}",
-                    "away": f"{(away_fouls_avg / 4):.1f}"
+                    "home": f"{(home_fouls_avg / DISCIPLINE_INDEX_DIVISOR):.1f}",
+                    "away": f"{(away_fouls_avg / DISCIPLINE_INDEX_DIVISOR):.1f}"
                 }
             }
         }
@@ -515,11 +520,11 @@ async def get_fouls_statistics(
 
 @router.get("/offsides", response_model=OffsListResponse)
 async def get_offsides_statistics(
-    days_ahead: int = Query(7, ge=1, le=30),
+    days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
     league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_LIMIT, ge=MIN_SAMPLE_SIZE, le=MAX_LIMIT),
+    offset: int = Query(DEFAULT_OFFSET, ge=DEFAULT_OFFSET),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -548,7 +553,7 @@ async def get_offsides_statistics(
     query = db.query(Fixture).filter(
         Fixture.match_date >= now,
         Fixture.match_date <= end_date,
-        Fixture.status.in_(["NS", "TBD"])
+        Fixture.status.in_(UPCOMING_FIXTURE_STATUSES)
     )
 
     if requested_league_ids:
@@ -567,17 +572,17 @@ async def get_offsides_statistics(
     for fixture in fixtures:
         # Use already-loaded stats from joinedload (NO additional queries!)
         home_offsides = [s.offsides for s in fixture.stats if s.team_id == fixture.home_team_id and s.offsides is not None]
-        home_offsides_avg = sum(home_offsides) / len(home_offsides) if home_offsides else 2.3
+        home_offsides_avg = sum(home_offsides) / len(home_offsides) if home_offsides else DEFAULT_HOME_OFFSIDES
 
         away_offsides = [s.offsides for s in fixture.stats if s.team_id == fixture.away_team_id and s.offsides is not None]
-        away_offsides_avg = sum(away_offsides) / len(away_offsides) if away_offsides else 1.9
+        away_offsides_avg = sum(away_offsides) / len(away_offsides) if away_offsides else DEFAULT_AWAY_OFFSIDES
 
         # Get shots for tactical index calculation
         home_shots_list = [s.total_shots for s in fixture.stats if s.team_id == fixture.home_team_id and s.total_shots is not None]
-        home_shots = sum(home_shots_list) / len(home_shots_list) if home_shots_list else 12.0
+        home_shots = sum(home_shots_list) / len(home_shots_list) if home_shots_list else DEFAULT_HOME_SHOTS_FOR_TACTICAL
 
         away_shots_list = [s.total_shots for s in fixture.stats if s.team_id == fixture.away_team_id and s.total_shots is not None]
-        away_shots = sum(away_shots_list) / len(away_shots_list) if away_shots_list else 10.0
+        away_shots = sum(away_shots_list) / len(away_shots_list) if away_shots_list else DEFAULT_AWAY_SHOTS_FOR_TACTICAL
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -595,16 +600,16 @@ async def get_offsides_statistics(
                 "home_offsides": {
                     "avg": f"{home_offsides_avg:.1f}",
                     "per_shot": f"{(home_offsides_avg / home_shots):.2f}",
-                    "tactical_index": f"{(home_offsides_avg * 3):.1f}"
+                    "tactical_index": f"{(home_offsides_avg * TACTICAL_INDEX_MULTIPLIER):.1f}"
                 },
                 "away_offsides": {
                     "avg": f"{away_offsides_avg:.1f}",
                     "per_shot": f"{(away_offsides_avg / away_shots):.2f}",
-                    "tactical_index": f"{(away_offsides_avg * 3):.1f}"
+                    "tactical_index": f"{(away_offsides_avg * TACTICAL_INDEX_MULTIPLIER):.1f}"
                 },
                 "attacking_style": {
-                    "home": "High Line" if home_offsides_avg > 2.0 else "Balanced",
-                    "away": "High Line" if away_offsides_avg > 2.0 else "Balanced"
+                    "home": "High Line" if home_offsides_avg > OFFSIDES_HIGH_LINE_THRESHOLD else "Balanced",
+                    "away": "High Line" if away_offsides_avg > OFFSIDES_HIGH_LINE_THRESHOLD else "Balanced"
                 }
             }
         }
