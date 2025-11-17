@@ -221,7 +221,7 @@ class PredictionPipeline:
                 away_defense=away_stats["defense_strength"]
             )
             predictions["poisson"] = poisson_pred
-                models_used.append("poisson")
+            models_used.append("poisson")
 
         # Run Dixon-Coles (starter+)
         if "dixon_coles" in available_statistical:
@@ -232,7 +232,7 @@ class PredictionPipeline:
                 away_defense=away_stats["defense_strength"]
             )
             predictions["dixon_coles"] = dc_pred
-                models_used.append("dixon_coles")
+            models_used.append("dixon_coles")
 
         # Run Elo (pro+)
         if "elo" in available_statistical:
