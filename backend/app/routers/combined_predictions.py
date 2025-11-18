@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 import logging
 
 from app.core.dependencies import get_db, get_current_active_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.fixture import Fixture
 from app.models.odds import FixtureOdds
@@ -33,6 +34,7 @@ from app.models.league import League
 from app.models.team import Team
 from app.services.prediction_pipeline import PredictionPipeline
 from app.core.leagues_config import get_leagues_for_tier
+from app.utils.validators import validate_league_count
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -92,7 +94,8 @@ def calculate_double_chance(home_prob: float, draw_prob: float, away_prob: float
 @router.get("/fixtures/predictions-with-odds")
 async def get_fixtures_with_predictions_and_odds(
     days_ahead: int = Query(7, ge=1, le=30, description="Number of days to look ahead"),
-    league_id: Optional[int] = Query(None, description="Filter by league ID"),
+    league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
+    league_ids: Optional[List[int]] = Query(None, description="Filter by multiple league IDs (max 5 for regular users, 10 for admin)"),
     season: Optional[int] = Query(None, description="Filter by season"),
     limit: int = Query(100, ge=1, le=200, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
@@ -119,6 +122,31 @@ async def get_fixtures_with_predictions_and_odds(
         # Get accessible leagues based on user tier
         accessible_league_ids = get_leagues_for_tier(current_user.tier)
 
+        # Handle league filtering (support both single and multiple league IDs)
+        requested_league_ids = []
+        if league_ids:
+            requested_league_ids = league_ids
+        elif league_id:
+            # Backward compatibility: convert single league_id to list
+            requested_league_ids = [league_id]
+
+        # Validate league count to prevent app crashes
+        if requested_league_ids:
+            validate_league_count(
+                league_ids=requested_league_ids,
+                user_tier=current_user.tier,
+                max_regular=settings.MAX_LEAGUES_PER_SEARCH_REGULAR,
+                max_admin=settings.MAX_LEAGUES_PER_SEARCH_ADMIN
+            )
+
+            # Verify all requested leagues are accessible
+            for lid in requested_league_ids:
+                if lid not in accessible_league_ids:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"League {lid} not accessible with {current_user.tier} tier"
+                    )
+
         # Build query
         query = db.query(Fixture).filter(
             Fixture.match_date >= now,
@@ -127,13 +155,9 @@ async def get_fixtures_with_predictions_and_odds(
             Fixture.league_id.in_(accessible_league_ids)  # Tier-based filtering
         )
 
-        if league_id:
-            if league_id not in accessible_league_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"League {league_id} not accessible with {current_user.tier} tier"
-                )
-            query = query.filter(Fixture.league_id == league_id)
+        # Apply league filter if specific leagues requested
+        if requested_league_ids:
+            query = query.filter(Fixture.league_id.in_(requested_league_ids))
 
         if season:
             query = query.filter(Fixture.season == season)

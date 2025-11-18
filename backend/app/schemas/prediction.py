@@ -1,14 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any
 from datetime import datetime
 
 
 class PredictionRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     fixture_id: int
-    model_type: str  # 'poisson', 'dixon_coles', 'elo', 'logistic', 'random_forest', 'xgboost'
+    model_type: str  # 'poisson', 'dixon_coles', 'bivariate_poisson', 'elo', 'glicko'
 
 
 class PredictionData(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     home_win_prob: float
     draw_prob: float
     away_win_prob: float
@@ -20,6 +24,8 @@ class PredictionData(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
     id: str
     fixture_id: int
     model_type: str
@@ -28,11 +34,10 @@ class PredictionResponse(BaseModel):
     created_at: datetime
     is_admin_model: bool
 
-    class Config:
-        from_attributes = True
-
 
 class TeamRatingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     team_id: int
     league_id: int
     season: int
@@ -42,6 +47,3 @@ class TeamRatingResponse(BaseModel):
     home_advantage: Optional[float] = None
     form_last_5: Optional[float] = None
     updated_at: datetime
-
-    class Config:
-        from_attributes = True

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, BigInteger, ForeignKey, Float, Text
+from sqlalchemy import Column, Integer, String, DateTime, BigInteger, ForeignKey, Float, Text, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -23,11 +23,23 @@ class Fixture(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        # Most common: Get fixtures by league, season, and status
+        Index('ix_fixture_league_season_status', 'league_id', 'season', 'status'),
+        # Upcoming fixtures query: match_date + status
+        Index('ix_fixture_date_status', 'match_date', 'status'),
+        # Team-specific queries
+        Index('ix_fixture_teams', 'home_team_id', 'away_team_id'),
+        # League + date range queries
+        Index('ix_fixture_league_date', 'league_id', 'match_date'),
+    )
+
     # Relationships
     league = relationship("League", backref="fixtures")
     home_team = relationship("Team", foreign_keys=[home_team_id], backref="home_fixtures")
     away_team = relationship("Team", foreign_keys=[away_team_id], backref="away_fixtures")
-    stats = relationship("FixtureStat", back_populates="fixture", cascade="all, delete-orphan")
+    stats = relationship("FixtureStat", back_populates="fixture", cascade="all, delete-orphan", lazy="select")
     score = relationship("FixtureScore", back_populates="fixture", cascade="all, delete-orphan", uselist=False)
     odds = relationship("FixtureOdds", back_populates="fixture", cascade="all, delete-orphan")
 
@@ -60,6 +72,13 @@ class FixtureStat(Base):
     expected_goals = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Composite index for most common query: get stats for fixture + team
+    __table_args__ = (
+        Index('ix_fixture_stat_fixture_team', 'fixture_id', 'team_id'),
+        # Team-specific stats queries
+        Index('ix_fixture_stat_team_created', 'team_id', 'created_at'),
+    )
 
     fixture = relationship("Fixture", back_populates="stats")
     team = relationship("Team")

@@ -71,9 +71,9 @@ class Settings(BaseSettings):
     TIER_MODELS: dict = {
         "free": ["poisson"],
         "starter": ["poisson", "dixon_coles"],
-        "pro": ["poisson", "dixon_coles", "elo"],
-        "premium": ["poisson", "dixon_coles", "elo", "logistic"],
-        "ultimate": ["poisson", "dixon_coles", "elo", "logistic", "random_forest", "xgboost"]
+        "pro": ["poisson", "dixon_coles", "bivariate_poisson"],
+        "premium": ["poisson", "dixon_coles", "bivariate_poisson", "elo"],
+        "ultimate": ["poisson", "dixon_coles", "bivariate_poisson", "elo", "glicko"]
     }
 
     TIER_LEAGUE_LIMITS: dict = {
@@ -83,6 +83,10 @@ class Settings(BaseSettings):
         "premium": 50,
         "ultimate": 999
     }
+
+    # League Search Limits (per query to prevent app crashes)
+    MAX_LEAGUES_PER_SEARCH_REGULAR: int = 5  # Regular users (free-premium)
+    MAX_LEAGUES_PER_SEARCH_ADMIN: int = 10    # Admin users (ultimate)
 
     # ML Models
     ML_MODEL_PATH: str = "app/ml/models"

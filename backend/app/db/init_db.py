@@ -34,7 +34,8 @@ def seed_initial_data(db: Session) -> None:
 
     Creates:
     - Admin user
-    - Sample leagues (free tier)
+    - Demo starter-tier user for frontend auto-login
+    - Sample leagues, teams, fixtures, and statistics
     """
     try:
         # Check if admin user already exists
@@ -42,7 +43,6 @@ def seed_initial_data(db: Session) -> None:
         existing_admin = db.query(User).filter(User.email == admin_email).first()
 
         if not existing_admin:
-            # Create admin user
             admin_user = User(
                 email=admin_email,
                 password_hash=get_password_hash("Admin123!"),  # Change in production!
@@ -55,7 +55,7 @@ def seed_initial_data(db: Session) -> None:
         else:
             logger.info(f"ℹ️  Admin user already exists: {admin_email}")
 
-        # Create demo user for frontend auto-login
+        # Create demo user used by PHP frontend's tryDemoAuth helper
         demo_email = "demo@superstatsfootball.com"
         existing_demo = db.query(User).filter(User.email == demo_email).first()
 
@@ -116,7 +116,7 @@ def seed_initial_data(db: Session) -> None:
             else:
                 logger.info(f"ℹ️  League already exists: {league_data['name']}")
 
-        # Create teams referenced by demo fixtures
+        # Create teams that appear in demo fixtures
         sample_teams = [
             {"id": 33, "name": "Manchester United", "code": "MUN", "country": "England"},
             {"id": 50, "name": "Manchester City", "code": "MCI", "country": "England"},
@@ -143,7 +143,7 @@ def seed_initial_data(db: Session) -> None:
             else:
                 logger.info(f"ℹ️  Team already exists: {team_data['name']}")
 
-        # Create sample fixtures with statistics so the frontend has data immediately
+        # Create sample fixtures and statistics so the frontend has data immediately
         now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
         sample_fixtures = [
             {
