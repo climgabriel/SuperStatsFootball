@@ -1,6 +1,10 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import List
 import secrets
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -90,6 +94,40 @@ class Settings(BaseSettings):
 
     # ML Models
     ML_MODEL_PATH: str = "app/ml/models"
+
+    @model_validator(mode='after')
+    def validate_api_keys(self):
+        """Validate critical API keys at startup."""
+        warnings = []
+        errors = []
+
+        # Check API-Football key
+        if not self.APIFOOTBALL_API_KEY:
+            errors.append("APIFOOTBALL_API_KEY is not set in environment variables")
+        elif not self.APIFOOTBALL_API_KEY.strip():
+            errors.append("APIFOOTBALL_API_KEY is empty")
+        elif len(self.APIFOOTBALL_API_KEY) < 10:
+            warnings.append("APIFOOTBALL_API_KEY seems too short - may be invalid")
+
+        # Check database URL
+        if not self.DATABASE_URL:
+            errors.append("DATABASE_URL is not set")
+
+        # Log warnings
+        for warning in warnings:
+            logger.warning(f"Configuration warning: {warning}")
+
+        # Raise error for critical missing configs
+        if errors and self.ENVIRONMENT == "production":
+            error_msg = "Critical configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        elif errors:
+            # In development, just log warnings
+            for error in errors:
+                logger.warning(f"Configuration error (dev mode): {error}")
+
+        return self
 
 
 settings = Settings()

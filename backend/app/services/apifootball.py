@@ -6,8 +6,13 @@ from app.core.config import settings
 from app.utils.logger import logger
 
 
+class RateLimitError(Exception):
+    """Raised when API rate limit is exceeded."""
+    pass
+
+
 class APIFootballClient:
-    """Client for API-Football API."""
+    """Client for API-Football API with retry and rate limit handling."""
 
     def __init__(self):
         self.base_url = settings.APIFOOTBALL_BASE_URL
@@ -17,6 +22,8 @@ class APIFootballClient:
             "x-rapidapi-key": self.api_key
         }
         self.client = None
+        self.max_retries = 3
+        self.base_backoff = 2.0  # Base delay for exponential backoff (seconds)
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -25,38 +32,86 @@ class APIFootballClient:
         return self.client
 
     async def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
-        """Make an API request with rate limiting and error handling."""
+        """Make an API request with retry logic and exponential backoff."""
         if not self.api_key:
             logger.warning("API-Football API key not configured")
             return {"response": [], "errors": ["API key not configured"]}
 
+        if not self.api_key.strip():
+            logger.error("API-Football API key is empty")
+            return {"response": [], "errors": ["API key is empty"]}
+
         url = f"{self.base_url}/{endpoint}"
         client = await self._get_client()
 
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
+        # Retry logic with exponential backoff
+        for attempt in range(self.max_retries):
+            try:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
 
-            data = response.json()
+                data = response.json()
 
-            # Log API usage
-            logger.info(f"API-Football request: {endpoint} - {response.status_code}")
-            rate_limit = response.headers.get('x-ratelimit-remaining', 'N/A')
-            rate_limit_total = response.headers.get('x-ratelimit-limit', 'N/A')
-            logger.info(f"Rate limit: {rate_limit}/{rate_limit_total}")
+                # Log API usage
+                logger.info(f"API-Football request: {endpoint} - {response.status_code}")
+                rate_limit = response.headers.get('x-ratelimit-remaining', 'N/A')
+                rate_limit_total = response.headers.get('x-ratelimit-limit', 'N/A')
+                logger.info(f"Rate limit: {rate_limit}/{rate_limit_total}")
 
-            if data.get("errors"):
-                logger.error(f"API-Football error: {data['errors']}")
-                raise Exception(f"API error: {data['errors']}")
+                # Check for API errors
+                if data.get("errors"):
+                    errors = data['errors']
+                    logger.error(f"API-Football error: {errors}")
 
-            return data
+                    # Check if it's a rate limit error
+                    if isinstance(errors, dict):
+                        if 'rateLimit' in errors or 'token' in errors:
+                            # Rate limit or auth error - retry with backoff
+                            if attempt < self.max_retries - 1:
+                                backoff_time = self.base_backoff * (2 ** attempt)
+                                logger.warning(f"Rate limit/auth error. Retrying in {backoff_time}s (attempt {attempt + 1}/{self.max_retries})")
+                                await asyncio.sleep(backoff_time)
+                                continue
+                            else:
+                                raise RateLimitError(f"API error after {self.max_retries} attempts: {errors}")
 
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error during API request: {str(e)}")
-            return {"response": [], "errors": [str(e)]}
-        except Exception as e:
-            logger.error(f"Error during API request: {str(e)}")
-            return {"response": [], "errors": [str(e)]}
+                    raise Exception(f"API error: {errors}")
+
+                return data
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:  # Too Many Requests
+                    if attempt < self.max_retries - 1:
+                        backoff_time = self.base_backoff * (2 ** attempt)
+                        logger.warning(f"HTTP 429 - Rate limit exceeded. Retrying in {backoff_time}s (attempt {attempt + 1}/{self.max_retries})")
+                        await asyncio.sleep(backoff_time)
+                        continue
+                    else:
+                        logger.error(f"HTTP 429 - Rate limit exceeded after {self.max_retries} attempts")
+                        return {"response": [], "errors": ["Rate limit exceeded"]}
+                else:
+                    logger.error(f"HTTP error during API request: {str(e)}")
+                    return {"response": [], "errors": [str(e)]}
+
+            except httpx.HTTPError as e:
+                logger.error(f"HTTP error during API request: {str(e)}")
+                return {"response": [], "errors": [str(e)]}
+
+            except RateLimitError as e:
+                logger.error(str(e))
+                return {"response": [], "errors": [str(e)]}
+
+            except Exception as e:
+                logger.error(f"Error during API request: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    backoff_time = self.base_backoff * (2 ** attempt)
+                    logger.warning(f"Retrying in {backoff_time}s (attempt {attempt + 1}/{self.max_retries})")
+                    await asyncio.sleep(backoff_time)
+                    continue
+                return {"response": [], "errors": [str(e)]}
+
+        # Should not reach here, but just in case
+        return {"response": [], "errors": ["Max retries exceeded"]}
 
     async def get_leagues(self, season: Optional[int] = None, country: Optional[str] = None) -> List[Dict]:
         """Get leagues."""

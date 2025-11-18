@@ -411,10 +411,11 @@ SEASON_RETENTION = {
 # Sync configuration
 SYNC_CONFIG = {
     "batch_size": 100,           # Fixtures per batch
-    "rate_limit_delay": 1.0,     # Seconds between API calls
+    "rate_limit_delay": 2.0,     # Seconds between batches (increased from 1.0)
     "retry_attempts": 3,          # Retries on failure
     "timeout": 30,                # Request timeout
-    "parallel_leagues": 5,        # Sync 5 leagues in parallel
+    "parallel_leagues": 2,        # Sync 2 leagues in parallel (reduced from 5 to avoid rate limits)
+    "api_call_delay": 0.5,        # Seconds between individual API calls within a task
 }
 
 

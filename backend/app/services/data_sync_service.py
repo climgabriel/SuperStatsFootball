@@ -138,6 +138,9 @@ class DataSyncService:
     async def _upsert_league(self, league_id: int, season: int) -> None:
         """Create or update league in database."""
         try:
+            # Rate limiting: Add delay before API call
+            await asyncio.sleep(SYNC_CONFIG["api_call_delay"])
+
             # Get league info from API-Football
             leagues_data = await api_football_client.get_leagues(season=season)
 
@@ -165,7 +168,7 @@ class DataSyncService:
                 logger.warning(f"No data found for league {league_id}")
                 return
 
-            # Check if league exists
+            # Check if league exists (using composite primary key)
             league = self.db.query(League).filter(
                 League.id == league_id,
                 League.season == season
@@ -202,6 +205,9 @@ class DataSyncService:
     async def _sync_teams(self, league_id: int, season: int) -> None:
         """Sync teams for a league/season."""
         try:
+            # Rate limiting: Add delay before API call
+            await asyncio.sleep(SYNC_CONFIG["api_call_delay"])
+
             teams_data = await api_football_client.get_teams(league_id, season)
 
             for team_data in teams_data:
@@ -240,6 +246,9 @@ class DataSyncService:
     async def _sync_fixtures(self, league_id: int, season: int) -> None:
         """Sync fixtures for a league/season."""
         try:
+            # Rate limiting: Add delay before API call
+            await asyncio.sleep(SYNC_CONFIG["api_call_delay"])
+
             fixtures_data = await api_football_client.get_fixtures(
                 league_id=league_id,
                 season=season
