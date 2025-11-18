@@ -261,7 +261,7 @@ async def get_shots_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Get shots stats
-        home_shots_total = db.query(func.avg(FixtureStat.shots_total)).filter(
+        home_shots_total = db.query(func.avg(FixtureStat.total_shots)).filter(
             FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 12.5
 
@@ -269,13 +269,16 @@ async def get_shots_statistics(
             FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 5.2
 
-        away_shots_total = db.query(func.avg(FixtureStat.shots_total)).filter(
+        away_shots_total = db.query(func.avg(FixtureStat.total_shots)).filter(
             FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 9.8
 
         away_shots_on_goal = db.query(func.avg(FixtureStat.shots_on_goal)).filter(
             FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 4.1
+
+        home_accuracy = f"{(home_shots_on_goal / home_shots_total * 100):.1f}%" if home_shots_total else "0.0%"
+        away_accuracy = f"{(away_shots_on_goal / away_shots_total * 100):.1f}%" if away_shots_total else "0.0%"
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
@@ -288,13 +291,13 @@ async def get_shots_statistics(
                 "home_shots": {
                     "total_avg": f"{home_shots_total:.1f}",
                     "on_target_avg": f"{home_shots_on_goal:.1f}",
-                    "accuracy": f"{(home_shots_on_goal / home_shots_total * 100):.1f}%",
+                    "accuracy": home_accuracy,
                     "over_4_5_on_target": "1.75"
                 },
                 "away_shots": {
                     "total_avg": f"{away_shots_total:.1f}",
                     "on_target_avg": f"{away_shots_on_goal:.1f}",
-                    "accuracy": f"{(away_shots_on_goal / away_shots_total * 100):.1f}%",
+                    "accuracy": away_accuracy,
                     "over_3_5_on_target": "1.90"
                 }
             }
@@ -396,13 +399,16 @@ async def get_offsides_statistics(
         ).scalar() or 1.9
 
         # Get shots for tactical index calculation
-        home_shots = db.query(func.avg(FixtureStat.shots_total)).filter(
+        home_shots = db.query(func.avg(FixtureStat.total_shots)).filter(
             FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 12.0
 
-        away_shots = db.query(func.avg(FixtureStat.shots_total)).filter(
+        away_shots = db.query(func.avg(FixtureStat.total_shots)).filter(
             FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 10.0
+
+        home_per_shot = (home_offsides_avg / home_shots) if home_shots else 0
+        away_per_shot = (away_offsides_avg / away_shots) if away_shots else 0
 
         fixture_data = {
             **extract_fixture_display_data(fixture),
@@ -414,12 +420,12 @@ async def get_offsides_statistics(
                 },
                 "home_offsides": {
                     "avg": f"{home_offsides_avg:.1f}",
-                    "per_shot": f"{(home_offsides_avg / home_shots):.2f}",
+                    "per_shot": f"{home_per_shot:.2f}",
                     "tactical_index": f"{(home_offsides_avg * TACTICAL_INDEX_MULTIPLIER):.1f}"
                 },
                 "away_offsides": {
                     "avg": f"{away_offsides_avg:.1f}",
-                    "per_shot": f"{(away_offsides_avg / away_shots):.2f}",
+                    "per_shot": f"{away_per_shot:.2f}",
                     "tactical_index": f"{(away_offsides_avg * TACTICAL_INDEX_MULTIPLIER):.1f}"
                 },
                 "attacking_style": {
