@@ -93,6 +93,19 @@ The API will be available at `http://localhost:8000`
 - API Documentation: `http://localhost:8000/docs`
 - Health Check: `http://localhost:8000/health`
 
+### Using the PHP frontend locally
+
+The PHP app in `../SuperStatsFootballw` can talk to your local FastAPI server by pointing it to the correct base URL:
+
+1. Start the backend (`uvicorn app.main:app --reload`).
+2. In the shell where you run PHP or your local web server, set `BACKEND_API_URL`:
+   ```bash
+   export BACKEND_API_URL=http://127.0.0.1:8000
+   ```
+3. Load the PHP site. The updated `config.php` reads `BACKEND_API_URL` and will call your local API instead of the remote Railway deployment.
+
+If Supabase/Postgres isn’t reachable, the backend now falls back to a local SQLite database and automatically seeds demo fixtures so the statistics pages still render useful data.
+
 ### Docker Setup
 
 ```bash

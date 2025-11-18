@@ -9,17 +9,22 @@ from typing import Dict, List
 LEAGUE_TIER_MAP = {
     # FREE TIER (3 leagues) - Most popular worldwide
     "free": [
+        39,   # England: Premier League (legacy/sample data ID)
         152,  # England: Premier League
         140,  # Spain: La Liga
         78,   # Germany: Bundesliga
+        302,  # Spain: La Liga (alt ID some accounts receive)
+        175,  # Germany: Bundesliga (alt ID some accounts receive)
     ],
 
     # STARTER TIER (10 leagues) - Major European + Top International
     "starter": [
         207,  # Italy: Serie A
         61,   # France: Ligue 1
+        168,  # France: Ligue 1 (alt ID)
         244,  # Netherlands: Eredivisie
         264,  # Portugal: Primeira Liga
+        266,  # Portugal: Primeira Liga (alt ID)
         99,   # Brazil: Serie A
         332,  # USA: MLS
         235,  # Mexico: Liga MX
@@ -372,12 +377,16 @@ LEAGUE_METADATA = {
     152: {"name": "Premier League", "country": "England", "tier": "free", "priority": 100},
     140: {"name": "La Liga", "country": "Spain", "tier": "free", "priority": 95},
     78: {"name": "Bundesliga", "country": "Germany", "tier": "free", "priority": 90},
+    302: {"name": "La Liga", "country": "Spain", "tier": "free", "priority": 95},
+    175: {"name": "Bundesliga", "country": "Germany", "tier": "free", "priority": 90},
 
     # Starter tier
     207: {"name": "Serie A", "country": "Italy", "tier": "starter", "priority": 85},
     61: {"name": "Ligue 1", "country": "France", "tier": "starter", "priority": 80},
+    168: {"name": "Ligue 1", "country": "France", "tier": "starter", "priority": 80},
     244: {"name": "Eredivisie", "country": "Netherlands", "tier": "starter", "priority": 75},
     264: {"name": "Primeira Liga", "country": "Portugal", "tier": "starter", "priority": 70},
+    266: {"name": "Primeira Liga", "country": "Portugal", "tier": "starter", "priority": 70},
     99: {"name": "Serie A", "country": "Brazil", "tier": "starter", "priority": 65},
     332: {"name": "MLS", "country": "USA", "tier": "starter", "priority": 60},
     235: {"name": "Liga MX", "country": "Mexico", "tier": "starter", "priority": 55},

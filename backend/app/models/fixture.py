@@ -24,6 +24,11 @@ class Fixture(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
+    league = relationship("League", backref="fixtures")
+    home_team = relationship("Team", foreign_keys=[home_team_id], backref="home_fixtures")
+    away_team = relationship("Team", foreign_keys=[away_team_id], backref="away_fixtures")
+    stats = relationship("FixtureStat", back_populates="fixture", cascade="all, delete-orphan")
+    score = relationship("FixtureScore", back_populates="fixture", cascade="all, delete-orphan", uselist=False)
     odds = relationship("FixtureOdds", back_populates="fixture", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -56,6 +61,9 @@ class FixtureStat(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    fixture = relationship("Fixture", back_populates="stats")
+    team = relationship("Team")
+
     def __repr__(self):
         return f"<FixtureStat fixture={self.fixture_id} team={self.team_id}>"
 
@@ -75,6 +83,8 @@ class FixtureScore(Base):
     away_penalty = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    fixture = relationship("Fixture", back_populates="score")
 
     def __repr__(self):
         return f"<FixtureScore fixture={self.fixture_id}>"

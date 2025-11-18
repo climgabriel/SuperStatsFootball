@@ -8,7 +8,7 @@ import os
 
 from app.core.config import settings
 from app.routers import auth, users, leagues, fixtures, predictions, admin, webhooks, odds, statistics, combined_predictions
-from app.db.session import engine
+from app.db.session import engine, SessionLocal
 from app.db.base import Base
 from app.utils.logger import logger
 
@@ -118,6 +118,16 @@ async def startup_event():
                 from app.models import user, league, team, fixture, prediction, odds
                 Base.metadata.create_all(bind=engine)
                 logger.info("✅ Database tables created successfully")
+                try:
+                    from app.db.init_db import seed_initial_data
+                    db_session = SessionLocal()
+                    try:
+                        seed_initial_data(db_session)
+                        logger.info("✅ Development seed data ensured")
+                    finally:
+                        db_session.close()
+                except Exception as seed_error:
+                    logger.error(f"❌ Error seeding development data: {seed_error}")
             except Exception as e:
                 logger.error(f"❌ Error creating database tables: {str(e)}")
                 import traceback

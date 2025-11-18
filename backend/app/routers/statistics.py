@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from app.core.dependencies import get_db, get_current_active_user
 from app.models.user import User
-from app.models.fixture import Fixture, FixtureStats
+from app.models.fixture import Fixture, FixtureStat
 from app.models.league import League
 from app.models.team import Team
 from app.schemas.statistics import (
@@ -69,12 +69,12 @@ async def get_goals_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Calculate goals statistics from historical data
-        home_stats = db.query(FixtureStats).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_stats = db.query(FixtureStat).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).all()
 
-        away_stats = db.query(FixtureStats).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_stats = db.query(FixtureStat).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).all()
 
         # Calculate averages (simplified - in production, use more sophisticated calculations)
@@ -155,12 +155,12 @@ async def get_corners_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Get corner stats from historical data
-        home_stats = db.query(func.avg(FixtureStats.corners)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_stats = db.query(func.avg(FixtureStat.corners)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 6.0
 
-        away_stats = db.query(func.avg(FixtureStats.corners)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_stats = db.query(func.avg(FixtureStat.corners)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 4.5
 
         fixture_data = {
@@ -229,20 +229,20 @@ async def get_cards_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Get cards stats
-        home_yellow_avg = db.query(func.avg(FixtureStats.yellow_cards)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_yellow_avg = db.query(func.avg(FixtureStat.yellow_cards)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 2.1
 
-        away_yellow_avg = db.query(func.avg(FixtureStats.yellow_cards)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_yellow_avg = db.query(func.avg(FixtureStat.yellow_cards)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 1.9
 
-        home_red_avg = db.query(func.avg(FixtureStats.red_cards)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_red_avg = db.query(func.avg(FixtureStat.red_cards)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 0.1
 
-        away_red_avg = db.query(func.avg(FixtureStats.red_cards)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_red_avg = db.query(func.avg(FixtureStat.red_cards)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 0.1
 
         fixture_data = {
@@ -314,21 +314,24 @@ async def get_shots_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Get shots stats
-        home_shots_total = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_shots_total = db.query(func.avg(FixtureStat.total_shots)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 12.5
 
-        home_shots_on_goal = db.query(func.avg(FixtureStats.shots_on_goal)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_shots_on_goal = db.query(func.avg(FixtureStat.shots_on_goal)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 5.2
 
-        away_shots_total = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_shots_total = db.query(func.avg(FixtureStat.total_shots)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 9.8
 
-        away_shots_on_goal = db.query(func.avg(FixtureStats.shots_on_goal)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_shots_on_goal = db.query(func.avg(FixtureStat.shots_on_goal)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 4.1
+
+        home_accuracy = f"{(home_shots_on_goal / home_shots_total * 100):.1f}%" if home_shots_total else "0.0%"
+        away_accuracy = f"{(away_shots_on_goal / away_shots_total * 100):.1f}%" if away_shots_total else "0.0%"
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -346,13 +349,13 @@ async def get_shots_statistics(
                 "home_shots": {
                     "total_avg": f"{home_shots_total:.1f}",
                     "on_target_avg": f"{home_shots_on_goal:.1f}",
-                    "accuracy": f"{(home_shots_on_goal / home_shots_total * 100):.1f}%",
+                    "accuracy": home_accuracy,
                     "over_4_5_on_target": "1.75"
                 },
                 "away_shots": {
                     "total_avg": f"{away_shots_total:.1f}",
                     "on_target_avg": f"{away_shots_on_goal:.1f}",
-                    "accuracy": f"{(away_shots_on_goal / away_shots_total * 100):.1f}%",
+                    "accuracy": away_accuracy,
                     "over_3_5_on_target": "1.90"
                 }
             }
@@ -397,12 +400,12 @@ async def get_fouls_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Get fouls stats
-        home_fouls_avg = db.query(func.avg(FixtureStats.fouls)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_fouls_avg = db.query(func.avg(FixtureStat.fouls)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 11.2
 
-        away_fouls_avg = db.query(func.avg(FixtureStats.fouls)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_fouls_avg = db.query(func.avg(FixtureStat.fouls)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 12.3
 
         fixture_data = {
@@ -474,22 +477,25 @@ async def get_offsides_statistics(
     result_fixtures = []
     for fixture in fixtures:
         # Get offsides stats
-        home_offsides_avg = db.query(func.avg(FixtureStats.offsides)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_offsides_avg = db.query(func.avg(FixtureStat.offsides)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 2.3
 
-        away_offsides_avg = db.query(func.avg(FixtureStats.offsides)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_offsides_avg = db.query(func.avg(FixtureStat.offsides)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 1.9
 
         # Get shots for tactical index calculation
-        home_shots = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.home_team_id
+        home_shots = db.query(func.avg(FixtureStat.total_shots)).filter(
+            FixtureStat.team_id == fixture.home_team_id
         ).scalar() or 12.0
 
-        away_shots = db.query(func.avg(FixtureStats.shots_total)).filter(
-            FixtureStats.team_id == fixture.away_team_id
+        away_shots = db.query(func.avg(FixtureStat.total_shots)).filter(
+            FixtureStat.team_id == fixture.away_team_id
         ).scalar() or 10.0
+
+        home_per_shot = (home_offsides_avg / home_shots) if home_shots else 0
+        away_per_shot = (away_offsides_avg / away_shots) if away_shots else 0
 
         fixture_data = {
             "fixture_id": fixture.id,
@@ -506,12 +512,12 @@ async def get_offsides_statistics(
                 },
                 "home_offsides": {
                     "avg": f"{home_offsides_avg:.1f}",
-                    "per_shot": f"{(home_offsides_avg / home_shots):.2f}",
+                    "per_shot": f"{home_per_shot:.2f}",
                     "tactical_index": f"{(home_offsides_avg * 3):.1f}"
                 },
                 "away_offsides": {
                     "avg": f"{away_offsides_avg:.1f}",
-                    "per_shot": f"{(away_offsides_avg / away_shots):.2f}",
+                    "per_shot": f"{away_per_shot:.2f}",
                     "tactical_index": f"{(away_offsides_avg * 3):.1f}"
                 },
                 "attacking_style": {
