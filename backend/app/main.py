@@ -39,12 +39,8 @@ app = FastAPI(
 )
 logger.info("✅ FastAPI application created")
 
-# CORS middleware - allow all origins in development, specific origins in production
-cors_origins = ["*"] if settings.ENVIRONMENT == "development" else [
-    "https://*.greengeeksclient.com",
-    "https://superstatsfootball.com",
-    "https://www.superstatsfootball.com"
-]
+# CORS middleware - use configured origins from settings
+cors_origins = settings.BACKEND_CORS_ORIGINS if settings.BACKEND_CORS_ORIGINS else ["*"]
 
 logger.info(f"🌐 CORS origins: {cors_origins}")
 app.add_middleware(
