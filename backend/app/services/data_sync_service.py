@@ -21,6 +21,11 @@ from app.models.league import League
 from app.models.team import Team
 from app.models.fixture import Fixture, FixtureStat, FixtureScore
 from app.models.odds import FixtureOdds
+from app.models.standing import Standing
+from app.models.lineup import Lineup, PlayerStatistic
+from app.models.top_scorer import TopScorer
+from app.models.api_prediction import APIFootballPrediction
+from app.models.h2h import H2HMatch
 from app.core.leagues_config import (
     get_all_league_ids,
     get_sync_priority_leagues,
@@ -684,6 +689,394 @@ class DataSyncService:
                 "status": "error",
                 "message": str(e)
             }
+
+
+    async def sync_standings(self, league_id: int, season: Optional[int] = None) -> Dict:
+        """
+        Sync league standings/table.
+
+        Args:
+            league_id: League ID
+            season: Optional season (defaults to current)
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            if not season:
+                season = self.season_manager.get_current_season()
+
+            logger.info(f"Syncing standings for league {league_id}, season {season}...")
+
+            standings_data = await api_football_client.get_standings(league_id)
+
+            if not standings_data:
+                logger.warning(f"No standings data for league {league_id}")
+                return {"status": "no_data", "league_id": league_id}
+
+            synced_count = 0
+
+            for standing_entry in standings_data:
+                team_id = standing_entry.get("team_id")
+                if not team_id:
+                    continue
+
+                # Check if standing exists
+                standing = self.db.query(Standing).filter(
+                    Standing.league_id == league_id,
+                    Standing.season == season,
+                    Standing.team_id == team_id
+                ).first()
+
+                if not standing:
+                    standing = Standing(
+                        league_id=league_id,
+                        season=season,
+                        team_id=team_id,
+                        last_update=datetime.utcnow()
+                    )
+                    self.db.add(standing)
+
+                # Update standings data
+                standing.rank = standing_entry.get("overall_league_position", 0)
+                standing.points = standing_entry.get("overall_league_PTS", 0)
+                standing.form = standing_entry.get("team_badge")  # Form data if available
+                standing.status = standing_entry.get("league_round", "")
+                standing.description = standing_entry.get("promotion", "")
+
+                # Overall matches
+                standing.played = standing_entry.get("overall_league_payed", 0)
+                standing.win = standing_entry.get("overall_league_W", 0)
+                standing.draw = standing_entry.get("overall_league_D", 0)
+                standing.lose = standing_entry.get("overall_league_L", 0)
+                standing.goals_for = standing_entry.get("overall_league_GF", 0)
+                standing.goals_against = standing_entry.get("overall_league_GA", 0)
+                standing.goal_diff = standing.goals_for - standing.goals_against
+
+                # Home record
+                standing.home_played = standing_entry.get("home_league_payed", 0)
+                standing.home_win = standing_entry.get("home_league_W", 0)
+                standing.home_draw = standing_entry.get("home_league_D", 0)
+                standing.home_lose = standing_entry.get("home_league_L", 0)
+                standing.home_goals_for = standing_entry.get("home_league_GF", 0)
+                standing.home_goals_against = standing_entry.get("home_league_GA", 0)
+
+                # Away record
+                standing.away_played = standing_entry.get("away_league_payed", 0)
+                standing.away_win = standing_entry.get("away_league_W", 0)
+                standing.away_draw = standing_entry.get("away_league_D", 0)
+                standing.away_lose = standing_entry.get("away_league_L", 0)
+                standing.away_goals_for = standing_entry.get("away_league_GF", 0)
+                standing.away_goals_against = standing_entry.get("away_league_GA", 0)
+
+                standing.last_update = datetime.utcnow()
+                standing.updated_at = datetime.utcnow()
+
+                synced_count += 1
+
+            self.db.commit()
+            logger.info(f"Synced {synced_count} standings for league {league_id}")
+
+            return {
+                "status": "success",
+                "league_id": league_id,
+                "season": season,
+                "standings_synced": synced_count
+            }
+
+        except Exception as e:
+            logger.error(f"Error syncing standings for league {league_id}: {str(e)}")
+            self.db.rollback()
+            return {"status": "error", "message": str(e)}
+
+    async def sync_lineups(self, fixture_id: int) -> Dict:
+        """
+        Sync lineups for a specific fixture.
+
+        Args:
+            fixture_id: Fixture ID
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            logger.info(f"Syncing lineups for fixture {fixture_id}...")
+
+            lineups_data = await api_football_client.get_lineups(fixture_id)
+
+            if not lineups_data:
+                logger.warning(f"No lineup data for fixture {fixture_id}")
+                return {"status": "no_data", "fixture_id": fixture_id}
+
+            synced_count = 0
+
+            for lineup_entry in lineups_data:
+                team_id = lineup_entry.get("team_id")
+                if not team_id:
+                    continue
+
+                # Check if lineup exists
+                lineup = self.db.query(Lineup).filter(
+                    Lineup.fixture_id == fixture_id,
+                    Lineup.team_id == team_id
+                ).first()
+
+                if not lineup:
+                    lineup = Lineup(
+                        fixture_id=fixture_id,
+                        team_id=team_id
+                    )
+                    self.db.add(lineup)
+
+                # Update lineup data
+                lineup.formation = lineup_entry.get("lineup_formation")
+                lineup.coach_id = lineup_entry.get("coach_id")
+                lineup.coach_name = lineup_entry.get("coach_name")
+
+                # Starting XI and substitutes (stored as JSON)
+                lineup.starting_xi = lineup_entry.get("starting_lineups", [])
+                lineup.substitutes = lineup_entry.get("substitutes", [])
+                lineup.updated_at = datetime.utcnow()
+
+                synced_count += 1
+
+            self.db.commit()
+            logger.info(f"Synced {synced_count} lineups for fixture {fixture_id}")
+
+            return {
+                "status": "success",
+                "fixture_id": fixture_id,
+                "lineups_synced": synced_count
+            }
+
+        except Exception as e:
+            logger.error(f"Error syncing lineups for fixture {fixture_id}: {str(e)}")
+            self.db.rollback()
+            return {"status": "error", "message": str(e)}
+
+    async def sync_top_scorers(self, league_id: int, season: Optional[int] = None) -> Dict:
+        """
+        Sync top scorers for a league.
+
+        Args:
+            league_id: League ID
+            season: Optional season (defaults to current)
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            if not season:
+                season = self.season_manager.get_current_season()
+
+            logger.info(f"Syncing top scorers for league {league_id}, season {season}...")
+
+            scorers_data = await api_football_client.get_top_scorers(league_id)
+
+            if not scorers_data:
+                logger.warning(f"No top scorers data for league {league_id}")
+                return {"status": "no_data", "league_id": league_id}
+
+            synced_count = 0
+
+            for scorer_entry in scorers_data:
+                player_id = scorer_entry.get("player_id")
+                team_id = scorer_entry.get("team_id")
+
+                if not player_id or not team_id:
+                    continue
+
+                # Check if top scorer entry exists
+                top_scorer = self.db.query(TopScorer).filter(
+                    TopScorer.league_id == league_id,
+                    TopScorer.season == season,
+                    TopScorer.player_id == player_id
+                ).first()
+
+                if not top_scorer:
+                    top_scorer = TopScorer(
+                        league_id=league_id,
+                        season=season,
+                        player_id=player_id,
+                        team_id=team_id,
+                        last_update=datetime.utcnow()
+                    )
+                    self.db.add(top_scorer)
+
+                # Update player info
+                top_scorer.player_name = scorer_entry.get("player_name")
+                top_scorer.player_age = scorer_entry.get("player_age")
+                top_scorer.player_nationality = scorer_entry.get("player_country")
+                top_scorer.team_id = team_id
+
+                # Update statistics
+                top_scorer.goals_total = int(scorer_entry.get("goals", 0))
+                top_scorer.goals_assists = int(scorer_entry.get("assists", 0))
+                top_scorer.games_appearances = int(scorer_entry.get("matches", 0))
+                top_scorer.penalty_scored = int(scorer_entry.get("penalties", 0))
+
+                top_scorer.last_update = datetime.utcnow()
+                top_scorer.updated_at = datetime.utcnow()
+
+                synced_count += 1
+
+            self.db.commit()
+            logger.info(f"Synced {synced_count} top scorers for league {league_id}")
+
+            return {
+                "status": "success",
+                "league_id": league_id,
+                "season": season,
+                "scorers_synced": synced_count
+            }
+
+        except Exception as e:
+            logger.error(f"Error syncing top scorers for league {league_id}: {str(e)}")
+            self.db.rollback()
+            return {"status": "error", "message": str(e)}
+
+    async def sync_api_prediction(self, fixture_id: int) -> Dict:
+        """
+        Sync API-Football prediction for a fixture.
+
+        Args:
+            fixture_id: Fixture ID
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            logger.info(f"Syncing API prediction for fixture {fixture_id}...")
+
+            predictions_data = await api_football_client.get_predictions(match_id=fixture_id)
+
+            if not predictions_data or len(predictions_data) == 0:
+                logger.warning(f"No prediction data for fixture {fixture_id}")
+                return {"status": "no_data", "fixture_id": fixture_id}
+
+            prediction_entry = predictions_data[0]
+
+            # Check if prediction exists
+            api_prediction = self.db.query(APIFootballPrediction).filter(
+                APIFootballPrediction.fixture_id == fixture_id
+            ).first()
+
+            if not api_prediction:
+                api_prediction = APIFootballPrediction(
+                    fixture_id=fixture_id,
+                    fetched_at=datetime.utcnow()
+                )
+                self.db.add(api_prediction)
+
+            # Update prediction data
+            predictions = prediction_entry.get("predictions", {})
+            api_prediction.winner_name = predictions.get("winner_name")
+            api_prediction.winner_comment = predictions.get("winner_comment")
+            api_prediction.under_over = predictions.get("under_over")
+            api_prediction.goals_home = predictions.get("goals_home")
+            api_prediction.goals_away = predictions.get("goals_away")
+            api_prediction.advice = predictions.get("advice")
+            api_prediction.percent_home = predictions.get("percent_home")
+            api_prediction.percent_draw = predictions.get("percent_draw")
+            api_prediction.percent_away = predictions.get("percent_away")
+
+            # Store comparison data as JSON
+            api_prediction.comparison = prediction_entry.get("comparison", {})
+            api_prediction.h2h = prediction_entry.get("h2h", {})
+            api_prediction.league_stats = prediction_entry.get("league", {})
+            api_prediction.teams_stats = prediction_entry.get("teams", {})
+
+            api_prediction.fetched_at = datetime.utcnow()
+            api_prediction.updated_at = datetime.utcnow()
+
+            self.db.commit()
+            logger.info(f"Synced API prediction for fixture {fixture_id}")
+
+            return {
+                "status": "success",
+                "fixture_id": fixture_id
+            }
+
+        except Exception as e:
+            logger.error(f"Error syncing API prediction for fixture {fixture_id}: {str(e)}")
+            self.db.rollback()
+            return {"status": "error", "message": str(e)}
+
+    async def sync_h2h(self, team1_id: int, team2_id: int) -> Dict:
+        """
+        Sync head-to-head history between two teams.
+
+        Args:
+            team1_id: First team ID
+            team2_id: Second team ID
+
+        Returns:
+            Sync statistics
+        """
+        try:
+            logger.info(f"Syncing H2H for teams {team1_id} vs {team2_id}...")
+
+            h2h_data = await api_football_client.get_h2h(team1_id, team2_id)
+
+            if not h2h_data:
+                logger.warning(f"No H2H data for teams {team1_id} vs {team2_id}")
+                return {"status": "no_data"}
+
+            synced_count = 0
+
+            for match_entry in h2h_data:
+                fixture_id = match_entry.get("match_id")
+                if not fixture_id:
+                    continue
+
+                # Check if H2H entry exists
+                h2h_match = self.db.query(H2HMatch).filter(
+                    H2HMatch.fixture_id == fixture_id
+                ).first()
+
+                if not h2h_match:
+                    h2h_match = H2HMatch(
+                        fixture_id=fixture_id,
+                        team1_id=team1_id,
+                        team2_id=team2_id
+                    )
+                    self.db.add(h2h_match)
+
+                # Update match data
+                h2h_match.league_id = match_entry.get("league_id")
+                h2h_match.season = match_entry.get("league_year")
+                h2h_match.match_date = datetime.fromisoformat(
+                    match_entry.get("match_date").replace("Z", "+00:00")
+                ) if match_entry.get("match_date") else datetime.utcnow()
+                h2h_match.home_team_id = match_entry.get("match_hometeam_id")
+                h2h_match.away_team_id = match_entry.get("match_awayteam_id")
+                h2h_match.home_score = match_entry.get("match_hometeam_score")
+                h2h_match.away_score = match_entry.get("match_awayteam_score")
+                h2h_match.status = match_entry.get("match_status")
+
+                # Determine winner
+                if h2h_match.home_score > h2h_match.away_score:
+                    h2h_match.winner_id = h2h_match.home_team_id
+                elif h2h_match.away_score > h2h_match.home_score:
+                    h2h_match.winner_id = h2h_match.away_team_id
+                else:
+                    h2h_match.winner_id = None
+
+                h2h_match.updated_at = datetime.utcnow()
+                synced_count += 1
+
+            self.db.commit()
+            logger.info(f"Synced {synced_count} H2H matches")
+
+            return {
+                "status": "success",
+                "matches_synced": synced_count
+            }
+
+        except Exception as e:
+            logger.error(f"Error syncing H2H: {str(e)}")
+            self.db.rollback()
+            return {"status": "error", "message": str(e)}
 
 
 async def run_full_sync(db: Session, tier: Optional[str] = None) -> Dict:

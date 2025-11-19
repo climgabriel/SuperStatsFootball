@@ -326,6 +326,42 @@ class APIFootballClient:
         }
         return await self._make_request("get_H2H", params)
 
+    async def get_top_scorers(self, league_id: int) -> List[Dict]:
+        """
+        Get top scorers for a league.
+
+        Args:
+            league_id: League ID
+
+        Returns:
+            List of top scorers with statistics
+        """
+        params = {"league_id": league_id}
+        return await self._make_request("get_topscorers", params)
+
+    async def get_players(
+        self,
+        team_id: Optional[int] = None,
+        player_name: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Get players, optionally filtered by team or name.
+
+        Args:
+            team_id: Filter by team ID
+            player_name: Filter by player name
+
+        Returns:
+            List of player data
+        """
+        params = {}
+        if team_id:
+            params["team_id"] = team_id
+        if player_name:
+            params["player_name"] = player_name
+
+        return await self._make_request("get_players", params)
+
     async def close(self):
         """Close the HTTP client."""
         if self.client:
