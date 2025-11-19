@@ -132,6 +132,16 @@ async def startup_event():
         else:
             logger.info("🏗️  Production mode: Skipping table creation (use Alembic migrations)")
 
+        # Start automatic data synchronization scheduler
+        logger.info("🔄 Starting automatic data synchronization scheduler...")
+        try:
+            from app.services.scheduler_service import auto_sync_scheduler
+            auto_sync_scheduler.start()
+            logger.info("✅ Automatic sync scheduler started successfully")
+        except Exception as scheduler_error:
+            logger.error(f"❌ Error starting scheduler: {scheduler_error}")
+            logger.warning("⚠️  Continuing without automatic sync scheduler")
+
         logger.info("=" * 80)
         logger.info("✅ STARTUP COMPLETE! Application is ready to accept requests.")
         logger.info(f"📋 Healthcheck endpoint available at: /health")
@@ -153,6 +163,14 @@ async def startup_event():
 async def shutdown_event():
     """Run on application shutdown."""
     logger.info(f"👋 {settings.APP_NAME} shutting down...")
+
+    # Stop scheduler
+    try:
+        from app.services.scheduler_service import auto_sync_scheduler
+        auto_sync_scheduler.stop()
+        logger.info("✅ Scheduler stopped")
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
 
     # Close API Football client
     from app.services.apifootball import api_football_client
