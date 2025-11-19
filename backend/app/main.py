@@ -84,16 +84,16 @@ async def startup_event():
 
         # Database configuration
         db_url = settings.DATABASE_URL
-        if db_url:
-            # Mask password in database URL for security
-            if '@' in db_url:
-                masked_url = db_url.split('@')[0].split('://')[0] + '://***:***@' + db_url.split('@')[1]
-            else:
-                masked_url = db_url[:30] + '...'
-            logger.info(f"🗄️  Database: {masked_url}")
+        if not db_url:
+            logger.error("❌ DATABASE_URL is not set. Supabase/Postgres connectivity is required.")
+            raise RuntimeError("DATABASE_URL missing")
+
+        # Mask password in database URL for security
+        if '@' in db_url:
+            masked_url = db_url.split('@')[0].split('://')[0] + '://***:***@' + db_url.split('@')[1]
         else:
-            logger.info("🗄️  Database: SQLite (default - fallback mode)")
-            logger.warning("⚠️  DATABASE_URL not set! Using SQLite fallback.")
+            masked_url = db_url[:30] + '...'
+        logger.info(f"🗄️  Database: {masked_url}")
 
         # Check critical environment variables
         logger.info("🔍 Checking environment variables...")

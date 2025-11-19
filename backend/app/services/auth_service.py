@@ -73,7 +73,8 @@ class AuthService:
             )
 
         # Verify password
-        if not verify_password(login_data.password, user.password_hash):
+        is_valid, needs_rehash = verify_password(login_data.password, user.password_hash)
+        if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
@@ -81,6 +82,8 @@ class AuthService:
 
         # Update last login
         user.last_login = datetime.utcnow()
+        if needs_rehash:
+            user.password_hash = get_password_hash(login_data.password)
         db.commit()
 
         # Generate tokens

@@ -1,21 +1,45 @@
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from jose import JWTError, jwt
 import hashlib
+import hmac
+from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from .config import settings
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against a hash."""
-    password_hash = hashlib.sha256((plain_password + settings.SECRET_KEY).encode()).hexdigest()
-    return password_hash == hashed_password
+
+def _legacy_hash(password: str) -> str:
+    """Generate the historical SHA-256 hash that was previously used."""
+    return hashlib.sha256((password + settings.SECRET_KEY).encode()).hexdigest()
+
+
+def verify_password(plain_password: str, hashed_password: str) -> Tuple[bool, bool]:
+    """
+    Verify a password against a hash.
+
+    Returns:
+        (is_valid, needs_rehash)
+    """
+    try:
+        if pwd_context.verify(plain_password, hashed_password):
+            return True, pwd_context.needs_update(hashed_password)
+    except (ValueError, TypeError):
+        # Not a bcrypt hash, fall back to legacy check
+        pass
+
+    legacy_hash = _legacy_hash(plain_password)
+    if hmac.compare_digest(legacy_hash, hashed_password or ""):
+        # Legacy hashes must be upgraded to bcrypt immediately
+        return True, True
+
+    return False, False
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password."""
-    # Simple hash for development - use bcrypt/argon2 in production
-    return hashlib.sha256((password + settings.SECRET_KEY).encode()).hexdigest()
+    """Hash a password using bcrypt."""
+    return pwd_context.hash(password)
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:

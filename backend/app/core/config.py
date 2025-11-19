@@ -117,15 +117,11 @@ class Settings(BaseSettings):
         for warning in warnings:
             logger.warning(f"Configuration warning: {warning}")
 
-        # Raise error for critical missing configs
-        if errors and self.ENVIRONMENT == "production":
+        # Raise error for critical missing configs in every environment
+        if errors:
             error_msg = "Critical configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
             logger.error(error_msg)
             raise ValueError(error_msg)
-        elif errors:
-            # In development, just log warnings
-            for error in errors:
-                logger.warning(f"Configuration error (dev mode): {error}")
 
         return self
 
