@@ -1,6 +1,6 @@
 import httpx
 from typing import Dict, List, Optional, Any
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import asyncio
 from app.core.config import settings
 from app.utils.logger import logger
@@ -12,238 +12,319 @@ class RateLimitError(Exception):
 
 
 class APIFootballClient:
-    """Client for API-Football API with retry and rate limit handling."""
+    """
+    Client for APIFootball.com API (apiv3.apifootball.com).
+
+    Uses query parameter authentication with action-based endpoints.
+    """
 
     def __init__(self):
         self.base_url = settings.APIFOOTBALL_BASE_URL
         self.api_key = settings.APIFOOTBALL_API_KEY
-        self.headers = {
-            "x-apisports-key": self.api_key
-        }
         self.client = None
         self.max_retries = 3
-        self.base_backoff = 2.0  # Base delay for exponential backoff (seconds)
+        self.base_backoff = 2.0
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
+        """Get or create HTTP client (no auth headers needed)."""
         if self.client is None:
-            self.client = httpx.AsyncClient(headers=self.headers, timeout=30.0)
+            self.client = httpx.AsyncClient(timeout=30.0)
         return self.client
 
-    async def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
-        """Make an API request with retry logic and exponential backoff."""
+    async def _make_request(self, action: str, params: Optional[Dict] = None) -> Any:
+        """
+        Make an API request with retry logic.
+
+        Args:
+            action: API action (e.g., 'get_leagues', 'get_teams')
+            params: Additional query parameters
+
+        Returns:
+            API response data (usually a list)
+        """
         if not self.api_key:
             logger.warning("API-Football API key not configured")
-            return {"response": [], "errors": ["API key not configured"]}
+            return []
 
         if not self.api_key.strip():
             logger.error("API-Football API key is empty")
-            return {"response": [], "errors": ["API key is empty"]}
+            return []
 
-        url = f"{self.base_url}/{endpoint}"
+        # Build query parameters
+        query_params = {"action": action, "APIkey": self.api_key}
+        if params:
+            query_params.update(params)
+
         client = await self._get_client()
 
         # Retry logic with exponential backoff
         for attempt in range(self.max_retries):
             try:
-                response = await client.get(url, params=params)
+                response = await client.get(self.base_url, params=query_params)
                 response.raise_for_status()
 
                 data = response.json()
 
                 # Log API usage
-                logger.info(f"API-Football request: {endpoint} - {response.status_code}")
-                rate_limit = response.headers.get('x-ratelimit-remaining', 'N/A')
-                rate_limit_total = response.headers.get('x-ratelimit-limit', 'N/A')
-                logger.info(f"Rate limit: {rate_limit}/{rate_limit_total}")
+                logger.info(f"APIFootball request: action={action} - {response.status_code}")
 
-                # Check for API errors
-                if data.get("errors"):
-                    errors = data['errors']
-                    logger.error(f"API-Football error: {errors}")
+                # Check for errors in response
+                if isinstance(data, dict) and 'error' in data:
+                    error_msg = data['error']
+                    logger.error(f"APIFootball error: {error_msg}")
 
-                    # Check if it's a rate limit error
-                    if isinstance(errors, dict):
-                        if 'rateLimit' in errors or 'token' in errors:
-                            # Rate limit or auth error - retry with backoff
-                            if attempt < self.max_retries - 1:
-                                backoff_time = self.base_backoff * (2 ** attempt)
-                                logger.warning(f"Rate limit/auth error. Retrying in {backoff_time}s (attempt {attempt + 1}/{self.max_retries})")
-                                await asyncio.sleep(backoff_time)
-                                continue
-                            else:
-                                raise RateLimitError(f"API error after {self.max_retries} attempts: {errors}")
+                    if 'rate limit' in error_msg.lower() or 'quota' in error_msg.lower():
+                        if attempt < self.max_retries - 1:
+                            backoff_time = self.base_backoff * (2 ** attempt)
+                            logger.warning(f"Rate limit error. Retrying in {backoff_time}s")
+                            await asyncio.sleep(backoff_time)
+                            continue
+                        else:
+                            raise RateLimitError(f"Rate limit exceeded: {error_msg}")
 
-                    raise Exception(f"API error: {errors}")
+                    raise Exception(f"API error: {error_msg}")
 
-                return data
+                # Success - return data
+                return data if data else []
 
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429:  # Too Many Requests
+                if e.response.status_code == 429:
                     if attempt < self.max_retries - 1:
                         backoff_time = self.base_backoff * (2 ** attempt)
-                        logger.warning(f"HTTP 429 - Rate limit exceeded. Retrying in {backoff_time}s (attempt {attempt + 1}/{self.max_retries})")
+                        logger.warning(f"HTTP 429 - Rate limit exceeded. Retrying in {backoff_time}s")
                         await asyncio.sleep(backoff_time)
                         continue
                     else:
                         logger.error(f"HTTP 429 - Rate limit exceeded after {self.max_retries} attempts")
-                        return {"response": [], "errors": ["Rate limit exceeded"]}
+                        return []
                 else:
-                    logger.error(f"HTTP error during API request: {str(e)}")
-                    return {"response": [], "errors": [str(e)]}
+                    logger.error(f"HTTP error: {str(e)}")
+                    return []
 
             except httpx.HTTPError as e:
-                logger.error(f"HTTP error during API request: {str(e)}")
-                return {"response": [], "errors": [str(e)]}
-
-            except RateLimitError as e:
-                logger.error(str(e))
-                return {"response": [], "errors": [str(e)]}
+                logger.error(f"HTTP error: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    backoff_time = self.base_backoff * (2 ** attempt)
+                    logger.warning(f"Retrying in {backoff_time}s")
+                    await asyncio.sleep(backoff_time)
+                    continue
+                return []
 
             except Exception as e:
                 logger.error(f"Error during API request: {str(e)}")
                 if attempt < self.max_retries - 1:
                     backoff_time = self.base_backoff * (2 ** attempt)
-                    logger.warning(f"Retrying in {backoff_time}s (attempt {attempt + 1}/{self.max_retries})")
                     await asyncio.sleep(backoff_time)
                     continue
-                return {"response": [], "errors": [str(e)]}
+                return []
 
-        # Should not reach here, but just in case
-        return {"response": [], "errors": ["Max retries exceeded"]}
+        return []
 
-    async def get_leagues(self, season: Optional[int] = None, country: Optional[str] = None) -> List[Dict]:
-        """Get leagues."""
+    async def get_countries(self) -> List[Dict]:
+        """Get all available countries."""
+        return await self._make_request("get_countries")
+
+    async def get_leagues(self, country_id: Optional[int] = None) -> List[Dict]:
+        """
+        Get leagues, optionally filtered by country.
+
+        Args:
+            country_id: Filter by country ID
+
+        Returns:
+            List of league data
+        """
         params = {}
-        if season:
-            params["season"] = season
-        if country:
-            params["country"] = country
+        if country_id:
+            params["country_id"] = country_id
 
-        data = await self._make_request("leagues", params)
-        return data.get("response", [])
+        return await self._make_request("get_leagues", params)
 
-    async def get_teams(self, league_id: int, season: int) -> List[Dict]:
-        """Get teams in a league for a season."""
-        params = {
-            "league": league_id,
-            "season": season
-        }
+    async def get_teams(self, league_id: int) -> List[Dict]:
+        """
+        Get teams in a league.
 
-        data = await self._make_request("teams", params)
-        return data.get("response", [])
+        Args:
+            league_id: League ID
+
+        Returns:
+            List of team data with full rosters
+        """
+        params = {"league_id": league_id}
+        return await self._make_request("get_teams", params)
+
+    async def get_team(self, team_id: int) -> List[Dict]:
+        """
+        Get specific team details.
+
+        Args:
+            team_id: Team ID
+
+        Returns:
+            Team data
+        """
+        params = {"team_id": team_id}
+        return await self._make_request("get_teams", params)
 
     async def get_fixtures(
         self,
         league_id: Optional[int] = None,
-        season: Optional[int] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         team_id: Optional[int] = None,
-        fixture_id: Optional[int] = None,
-        status: Optional[str] = None
+        match_id: Optional[int] = None,
+        match_live: bool = False
     ) -> List[Dict]:
-        """Get fixtures."""
+        """
+        Get fixtures/matches (called 'events' in apifootball.com).
+
+        Args:
+            league_id: Filter by league
+            date_from: Start date (yyyy-mm-dd)
+            date_to: End date (yyyy-mm-dd)
+            team_id: Filter by team
+            match_id: Get specific match
+            match_live: Only get live matches
+
+        Returns:
+            List of match/fixture data
+        """
         params = {}
 
-        if fixture_id:
-            params["id"] = fixture_id
+        if match_id:
+            params["match_id"] = match_id
         if league_id:
-            params["league"] = league_id
-        if season:
-            params["season"] = season
+            params["league_id"] = league_id
+        if team_id:
+            params["team_id"] = team_id
         if date_from:
             params["from"] = date_from
         if date_to:
             params["to"] = date_to
-        if team_id:
-            params["team"] = team_id
-        if status:
-            params["status"] = status
+        if match_live:
+            params["match_live"] = "1"
 
-        data = await self._make_request("fixtures", params)
-        return data.get("response", [])
+        return await self._make_request("get_events", params)
 
-    async def get_fixture_statistics(self, fixture_id: int) -> List[Dict]:
-        """Get statistics for a fixture."""
-        params = {"fixture": fixture_id}
-        data = await self._make_request("fixtures/statistics", params)
-        return data.get("response", [])
-
-    async def get_fixture_events(self, fixture_id: int) -> List[Dict]:
-        """Get events (goals, cards, etc.) for a fixture."""
-        params = {"fixture": fixture_id}
-        data = await self._make_request("fixtures/events", params)
-        return data.get("response", [])
-
-    async def get_standings(self, league_id: int, season: int) -> List[Dict]:
-        """Get league standings."""
-        params = {
-            "league": league_id,
-            "season": season
-        }
-        data = await self._make_request("standings", params)
-        return data.get("response", [])
-
-    async def get_bookmakers(self) -> List[Dict]:
+    async def get_fixture_statistics(self, match_id: int) -> List[Dict]:
         """
-        Get list of all available bookmakers.
-        Used to find Superbet bookmaker ID.
+        Get statistics for a match.
+
+        Args:
+            match_id: Match ID
+
+        Returns:
+            Match statistics
         """
-        data = await self._make_request("odds/bookmakers")
-        return data.get("response", [])
+        params = {"match_id": match_id}
+        return await self._make_request("get_statistics", params)
+
+    async def get_lineups(self, match_id: int) -> List[Dict]:
+        """
+        Get lineups for a match.
+
+        Args:
+            match_id: Match ID
+
+        Returns:
+            Lineup data
+        """
+        params = {"match_id": match_id}
+        return await self._make_request("get_lineups", params)
+
+    async def get_standings(self, league_id: int) -> List[Dict]:
+        """
+        Get league standings/table.
+
+        Args:
+            league_id: League ID
+
+        Returns:
+            Standings data
+        """
+        params = {"league_id": league_id}
+        return await self._make_request("get_standings", params)
 
     async def get_odds(
         self,
-        fixture_id: int,
-        bookmaker: Optional[int] = None,
-        bet: Optional[str] = None
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        match_id: Optional[int] = None
     ) -> List[Dict]:
         """
-        Get pre-match odds for a fixture.
+        Get betting odds.
 
         Args:
-            fixture_id: Fixture ID
-            bookmaker: Bookmaker ID (e.g., Superbet ID)
-            bet: Bet type ID (e.g., 1 for Match Winner, 5 for Goals Over/Under)
+            date_from: Start date (yyyy-mm-dd)
+            date_to: End date (yyyy-mm-dd)
+            match_id: Specific match ID
 
         Returns:
-            List of odds data from API-Football
+            Odds data from multiple bookmakers
         """
-        params = {"fixture": fixture_id}
-        if bookmaker:
-            params["bookmaker"] = bookmaker
-        if bet:
-            params["bet"] = bet
+        params = {}
 
-        data = await self._make_request("odds", params)
-        return data.get("response", [])
+        if match_id:
+            params["match_id"] = match_id
+        if date_from:
+            params["from"] = date_from
+        if date_to:
+            params["to"] = date_to
 
-    async def get_live_odds(
+        return await self._make_request("get_odds", params)
+
+    async def get_predictions(
         self,
-        fixture_id: int,
-        bookmaker: Optional[int] = None,
-        bet: Optional[str] = None
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        league_id: Optional[int] = None,
+        match_id: Optional[int] = None
     ) -> List[Dict]:
         """
-        Get live odds for an ongoing match.
+        Get AI/mathematical predictions.
 
         Args:
-            fixture_id: Fixture ID
-            bookmaker: Bookmaker ID (e.g., Superbet ID)
-            bet: Bet type ID
+            date_from: Start date (yyyy-mm-dd)
+            date_to: End date (yyyy-mm-dd)
+            league_id: Filter by league
+            match_id: Specific match ID
 
         Returns:
-            List of live odds data from API-Football
+            Prediction data with probabilities
         """
-        params = {"fixture": fixture_id}
-        if bookmaker:
-            params["bookmaker"] = bookmaker
-        if bet:
-            params["bet"] = bet
+        params = {}
 
-        data = await self._make_request("odds/live", params)
-        return data.get("response", [])
+        if match_id:
+            params["match_id"] = match_id
+        if league_id:
+            params["league_id"] = league_id
+        if date_from:
+            params["from"] = date_from
+        if date_to:
+            params["to"] = date_to
+
+        return await self._make_request("get_predictions", params)
+
+    async def get_h2h(
+        self,
+        first_team_id: int,
+        second_team_id: int
+    ) -> List[Dict]:
+        """
+        Get head-to-head history between two teams.
+
+        Args:
+            first_team_id: First team ID
+            second_team_id: Second team ID
+
+        Returns:
+            H2H match history
+        """
+        params = {
+            "firstTeamId": first_team_id,
+            "secondTeamId": second_team_id
+        }
+        return await self._make_request("get_H2H", params)
 
     async def close(self):
         """Close the HTTP client."""
