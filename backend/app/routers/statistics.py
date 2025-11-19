@@ -368,6 +368,7 @@ async def get_fouls_statistics(
 
 
 @router.get("/offsides", response_model=OffsListResponse)
+@router.get("/offs", response_model=OffsListResponse)  # Alias for frontend compatibility
 async def get_offsides_statistics(
     days_ahead: int = Query(DEFAULT_DAYS_AHEAD, ge=MIN_DAYS_AHEAD, le=MAX_DAYS_AHEAD),
     league_id: Optional[int] = Query(None, description="Filter by single league ID (deprecated, use league_ids)"),
@@ -379,6 +380,8 @@ async def get_offsides_statistics(
 ):
     """
     Get offside statistics for upcoming fixtures.
+
+    Aliased to /offs for frontend compatibility.
     """
     # Validate and normalize league IDs
     requested_league_ids = validate_and_normalize_league_ids(league_id, league_ids, current_user.tier)

@@ -9,11 +9,13 @@ router = APIRouter()
 
 
 @router.get("/profile", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse)  # Alias for frontend compatibility
 async def get_profile(current_user: User = Depends(get_current_active_user)):
     """
     Get current user's profile.
 
     Requires authentication.
+    Aliased to /me for frontend compatibility.
     """
     return current_user
 

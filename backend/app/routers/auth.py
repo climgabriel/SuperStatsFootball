@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_db
-from app.schemas.user import UserCreate, UserLogin, TokenResponse, RefreshTokenRequest
+from app.core.dependencies import get_db, get_current_active_user
+from app.models.user import User
+from app.schemas.user import UserCreate, UserLogin, TokenResponse, RefreshTokenRequest, UserResponse
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -49,3 +50,14 @@ async def logout():
     This endpoint exists for consistency and future enhancements (e.g., token blacklisting).
     """
     return {"message": "Successfully logged out"}
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_current_user_auth(current_user: User = Depends(get_current_active_user)):
+    """
+    Get current authenticated user.
+
+    Frontend compatibility endpoint - alias for /users/profile.
+    Requires authentication.
+    """
+    return current_user

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, computed_field
 from typing import Optional
 from datetime import datetime
 
@@ -38,6 +38,38 @@ class UserResponse(UserBase):
     tier: str
     subscription_status: str
     created_at: datetime
+
+    @computed_field
+    @property
+    def role(self) -> str:
+        """
+        Derive role from tier for frontend compatibility.
+
+        Returns:
+            "admin" for ultimate tier users, "user" for all others
+        """
+        return "admin" if self.tier == "ultimate" else "user"
+
+    @computed_field
+    @property
+    def plan(self) -> int:
+        """
+        Convert tier to numeric plan for frontend compatibility.
+
+        Frontend expects numeric plans:
+        1 = free, 2 = starter, 3 = pro, 4 = premium, 5 = ultimate
+
+        Returns:
+            Numeric plan ID (1-5)
+        """
+        tier_to_plan = {
+            "free": 1,
+            "starter": 2,
+            "pro": 3,
+            "premium": 4,
+            "ultimate": 5
+        }
+        return tier_to_plan.get(self.tier, 1)
 
     class Config:
         from_attributes = True
