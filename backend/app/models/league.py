@@ -7,9 +7,11 @@ from app.db.base import Base
 class League(Base):
     __tablename__ = "leagues"
 
-    # Composite primary key: (id, season) allows same league across multiple seasons
+    # Primary key is the API-Football league ID
+    # Note: Each league ID represents a unique league entity
+    # Use unique constraint on (id, season) to allow tracking across seasons
     id = Column(Integer, primary_key=True)  # API-Football league ID
-    season = Column(Integer, primary_key=True)  # Season year
+    season = Column(Integer, nullable=False, index=True)  # Season year
     name = Column(String(255), nullable=False)
     country = Column(String(100))
     logo = Column(String(500))
