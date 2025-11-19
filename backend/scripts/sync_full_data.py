@@ -33,13 +33,13 @@ async def sync_data(tier: str = None, limit: int = None):
     """Run full data synchronization."""
 
     logger.info("=" * 80)
-    logger.info("🔄 Starting Full Data Synchronization")
+    logger.info("Starting Full Data Synchronization")
     logger.info("=" * 80)
 
     if tier:
-        logger.info(f"📊 Tier filter: {tier}")
+        logger.info(f"Tier filter: {tier}")
     if limit:
-        logger.info(f"🔢 League limit: {limit}")
+        logger.info(f"League limit: {limit}")
 
     logger.info("=" * 80)
 
@@ -50,38 +50,38 @@ async def sync_data(tier: str = None, limit: int = None):
         sync_service = DataSyncService(db)
 
         # Run synchronization
-        logger.info("🚀 Starting league synchronization...")
+        logger.info("Starting league synchronization...")
         stats = await sync_service.sync_all_leagues(tier_filter=tier, limit=limit)
 
         logger.info("=" * 80)
-        logger.info("✅ Synchronization Complete!")
+        logger.info("Synchronization Complete!")
         logger.info("=" * 80)
-        logger.info(f"📈 Leagues synced: {stats.get('leagues_synced', 0)}")
-        logger.info(f"👥 Teams synced: {stats.get('teams_synced', 0)}")
-        logger.info(f"⚽ Fixtures synced: {stats.get('fixtures_synced', 0)}")
-        logger.info(f"📊 Stats synced: {stats.get('stats_synced', 0)}")
+        logger.info(f"Leagues synced: {stats.get('leagues_synced', 0)}")
+        logger.info(f"Teams synced: {stats.get('teams_synced', 0)}")
+        logger.info(f"Fixtures synced: {stats.get('fixtures_synced', 0)}")
+        logger.info(f"Stats synced: {stats.get('stats_synced', 0)}")
 
         if stats.get('errors'):
-            logger.warning(f"⚠️  Errors encountered: {len(stats['errors'])}")
-            for error in stats['errors'][:5]:  # Show first 5 errors
+            logger.warning(f"WARNING: Errors encountered: {len(stats['errors'])}")
+            for error in stats['errors'][:10]:  # Show first 10 errors
                 logger.warning(f"  - {error}")
 
         logger.info("=" * 80)
 
         # Sync odds for upcoming fixtures
-        logger.info("🎲 Syncing odds for upcoming fixtures...")
+        logger.info("Syncing odds for upcoming fixtures...")
         odds_stats = await sync_service.sync_pre_match_odds(days_ahead=7)
 
         logger.info("=" * 80)
-        logger.info("✅ Odds Synchronization Complete!")
+        logger.info("Odds Synchronization Complete!")
         logger.info("=" * 80)
-        logger.info(f"🎯 Fixtures with odds: {odds_stats.get('fixtures_processed', 0)}")
-        logger.info(f"📊 Odds records created: {odds_stats.get('odds_created', 0)}")
+        logger.info(f"Fixtures with odds: {odds_stats.get('fixtures_processed', 0)}")
+        logger.info(f"Odds records created: {odds_stats.get('odds_created', 0)}")
         logger.info("=" * 80)
 
     except Exception as e:
         logger.error("=" * 80)
-        logger.error(f"❌ Synchronization failed: {str(e)}")
+        logger.error(f"ERROR: Synchronization failed: {str(e)}")
         logger.error("=" * 80)
         import traceback
         traceback.print_exc()
@@ -103,6 +103,12 @@ def main():
         '--limit',
         type=int,
         help='Limit number of leagues to sync (useful for testing)'
+    )
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+        help='Show detailed error messages'
     )
 
     args = parser.parse_args()

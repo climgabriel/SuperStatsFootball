@@ -174,7 +174,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    logger.info("🏥 Health check endpoint called: /health")
+    logger.info("Health check endpoint called: /health")
     response = {
         "status": "healthy",
         "environment": settings.ENVIRONMENT,
@@ -183,8 +183,25 @@ async def health_check():
         "database": "connected" if settings.DATABASE_URL else "sqlite_fallback",
         "port": os.getenv("PORT", "8000")
     }
-    logger.info(f"✅ Health check response: {response}")
+    logger.info(f"Health check response: {response}")
     return response
+
+
+@app.get("/ip")
+async def get_server_ip():
+    """Get server's public IP address (for API-Football IP whitelisting)."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("https://api.ipify.org?format=json")
+            ip_data = response.json()
+            return {
+                "ip": ip_data["ip"],
+                "message": "Add this IP to API-Football SET IP whitelist",
+                "instructions": "Go to https://www.api-football.com/ → SET IP → Add this IP → Save"
+            }
+    except Exception as e:
+        return {"error": str(e), "message": "Could not determine public IP"}
 
 
 @app.exception_handler(Exception)

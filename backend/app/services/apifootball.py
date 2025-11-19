@@ -18,8 +18,7 @@ class APIFootballClient:
         self.base_url = settings.APIFOOTBALL_BASE_URL
         self.api_key = settings.APIFOOTBALL_API_KEY
         self.headers = {
-            "x-rapidapi-host": "v3.football.api-sports.io",
-            "x-rapidapi-key": self.api_key
+            "x-apisports-key": self.api_key
         }
         self.client = None
         self.max_retries = 3
