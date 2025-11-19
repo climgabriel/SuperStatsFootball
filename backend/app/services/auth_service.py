@@ -20,46 +20,71 @@ class AuthService:
     @staticmethod
     def register_user(user_data: UserCreate, db: Session) -> TokenResponse:
         """Register a new user."""
-        # Check if user already exists
-        existing_user = db.query(User).filter(User.email == user_data.email).first()
-        if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
+        logger.info(f"🔵 Registration attempt for email: {user_data.email}")
+
+        try:
+            # Check if user already exists
+            logger.debug(f"Checking if user {user_data.email} already exists...")
+            existing_user = db.query(User).filter(User.email == user_data.email).first()
+            if existing_user:
+                logger.warning(f"❌ Registration failed: Email {user_data.email} already registered")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered"
+                )
+
+            # Validate password strength
+            logger.debug(f"Validating password strength for {user_data.email}...")
+            is_valid, error_message = validate_password(user_data.password)
+            if not is_valid:
+                logger.warning(f"❌ Password validation failed for {user_data.email}: {error_message}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_message
+                )
+
+            # Create new user
+            logger.info(f"Creating new user: {user_data.email}")
+            hashed_password = get_password_hash(user_data.password)
+            new_user = User(
+                email=user_data.email,
+                password_hash=hashed_password,
+                full_name=user_data.full_name,
+                tier="free",
+                subscription_status="active",
+                last_login=datetime.utcnow()
             )
 
-        # Validate password strength
-        is_valid, error_message = validate_password(user_data.password)
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_message
+            logger.debug(f"Adding user {user_data.email} to database...")
+            db.add(new_user)
+
+            logger.debug(f"Committing user {user_data.email} to database...")
+            db.commit()
+
+            logger.debug(f"Refreshing user {user_data.email} from database...")
+            db.refresh(new_user)
+
+            logger.info(f"✅ User {user_data.email} created successfully with ID: {new_user.id}")
+
+            # Generate tokens
+            logger.debug(f"Generating tokens for user {new_user.id}...")
+            access_token = create_access_token({"sub": str(new_user.id)})
+            refresh_token = create_refresh_token({"sub": str(new_user.id)})
+
+            logger.info(f"✅ Registration complete for {user_data.email}")
+            return TokenResponse(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                user=UserResponse.model_validate(new_user)
             )
 
-        # Create new user
-        hashed_password = get_password_hash(user_data.password)
-        new_user = User(
-            email=user_data.email,
-            password_hash=hashed_password,
-            full_name=user_data.full_name,
-            tier="free",
-            subscription_status="active",
-            last_login=datetime.utcnow()
-        )
-
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-
-        # Generate tokens
-        access_token = create_access_token({"sub": str(new_user.id)})
-        refresh_token = create_refresh_token({"sub": str(new_user.id)})
-
-        return TokenResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=UserResponse.model_validate(new_user)
-        )
+        except HTTPException:
+            # Re-raise HTTP exceptions (they're already logged above)
+            raise
+        except Exception as e:
+            logger.error(f"🔴 Unexpected error during registration for {user_data.email}: {type(e).__name__}: {str(e)}")
+            logger.error(f"Full traceback:", exc_info=True)
+            raise
 
     @staticmethod
     def login_user(login_data: UserLogin, db: Session) -> TokenResponse:

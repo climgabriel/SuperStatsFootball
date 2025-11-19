@@ -225,10 +225,30 @@ async def get_server_ip():
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler."""
-    logger.error(f"Unhandled exception: {str(exc)}")
+    import traceback
+
+    error_type = type(exc).__name__
+    error_message = str(exc)
+    error_traceback = traceback.format_exc()
+
+    logger.error(f"🔴 Unhandled exception: {error_type}: {error_message}")
+    logger.error(f"Request URL: {request.url}")
+    logger.error(f"Request method: {request.method}")
+    logger.error(f"Full traceback:\n{error_traceback}")
 
     if settings.DEBUG:
-        raise exc
+        # In debug mode, return detailed error information
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error (DEBUG MODE)",
+                "error_type": error_type,
+                "error_message": error_message,
+                "traceback": error_traceback.split('\n'),
+                "request_url": str(request.url),
+                "request_method": request.method
+            }
+        )
 
     return JSONResponse(
         status_code=500,
