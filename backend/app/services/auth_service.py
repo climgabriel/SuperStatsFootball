@@ -1,6 +1,7 @@
 from datetime import datetime
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
+import logging
 
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
@@ -12,6 +13,8 @@ from app.core.security import (
     verify_token
 )
 from app.utils.validators import validate_password
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
