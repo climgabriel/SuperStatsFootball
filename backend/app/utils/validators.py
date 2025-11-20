@@ -18,6 +18,10 @@ def validate_password(password: str) -> tuple[bool, Optional[str]]:
     if len(password) < 8:
         return False, "Password must be at least 8 characters long"
 
+    # Bcrypt has a 72-byte limit
+    if len(password.encode('utf-8')) > 72:
+        return False, "Password is too long (maximum 72 characters)"
+
     if not re.search(r'[A-Z]', password):
         return False, "Password must contain at least one uppercase letter"
 

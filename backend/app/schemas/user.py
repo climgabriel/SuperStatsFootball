@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field, computed_field
-from typing import Optional
+from pydantic import BaseModel, EmailStr, Field, field_serializer, model_serializer
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 
@@ -9,7 +9,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=8, max_length=72)
 
 
 class UserLogin(BaseModel):
@@ -39,29 +39,20 @@ class UserResponse(UserBase):
     subscription_status: str
     created_at: datetime
 
-    @computed_field
-    @property
-    def role(self) -> str:
+    @model_serializer(mode='wrap')
+    def serialize_model(self, serializer):
         """
-        Derive role from tier for frontend compatibility.
-
-        Returns:
-            "admin" for ultimate tier users, "user" for all others
+        Custom serializer to add role and plan fields for frontend compatibility.
         """
-        return "admin" if self.tier == "ultimate" else "user"
+        # Get the base serialized data
+        data = serializer(self)
 
-    @computed_field
-    @property
-    def plan(self) -> int:
-        """
-        Convert tier to numeric plan for frontend compatibility.
+        # Add computed role field
+        # "admin" for ultimate tier users, "user" for all others
+        data['role'] = "admin" if self.tier == "ultimate" else "user"
 
-        Frontend expects numeric plans:
-        1 = free, 2 = starter, 3 = pro, 4 = premium, 5 = ultimate
-
-        Returns:
-            Numeric plan ID (1-5)
-        """
+        # Add computed plan field
+        # Maps tier to numeric plan (1-5) for frontend
         tier_to_plan = {
             "free": 1,
             "starter": 2,
@@ -69,7 +60,9 @@ class UserResponse(UserBase):
             "premium": 4,
             "ultimate": 5
         }
-        return tier_to_plan.get(self.tier, 1)
+        data['plan'] = tier_to_plan.get(self.tier, 1)
+
+        return data
 
     class Config:
         from_attributes = True
