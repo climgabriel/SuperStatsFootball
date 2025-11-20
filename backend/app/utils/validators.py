@@ -12,7 +12,7 @@ def validate_email(email: str) -> bool:
 
 def validate_password(password: str) -> tuple[bool, Optional[str]]:
     """
-    Validate password strength.
+    Validate password strength - Simple requirements.
     Returns (is_valid, error_message)
     """
     if len(password) < 8:
@@ -32,6 +32,8 @@ def validate_password(password: str) -> tuple[bool, Optional[str]]:
     if not re.search(r'\d', password):
         return False, "Password must contain at least one digit"
 
+    # Simple validation - only length matters
+    # No complexity requirements (uppercase, lowercase, digits, special chars)
     return True, None
 
 
