@@ -14,7 +14,12 @@ from .config import settings
 if not hasattr(bcrypt, "__about__"):
     bcrypt.__about__ = types.SimpleNamespace(__version__=bcrypt.__version__)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Prefer bcrypt_sha256 to safely support passwords longer than 72 bytes, while
+# keeping plain bcrypt hashes verifiable for existing users.
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256", "bcrypt"],
+    deprecated="auto"
+)
 
 
 def _legacy_hash(password: str) -> str:
@@ -46,9 +51,6 @@ def verify_password(plain_password: str, hashed_password: str) -> Tuple[bool, bo
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt."""
-    if len(password.encode("utf-8")) > 72:
-        # Passlib/bcrypt will raise, but this keeps the error controlled
-        raise ValueError("Password must be 72 bytes or less for bcrypt hashing")
     return pwd_context.hash(password)
 
 

@@ -54,7 +54,14 @@ class AuthService:
                 logger.warning(f"❌ Password rejected for {user_data.email}: {str(e)}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Password must be 72 characters or less"
+                    detail=str(e)
+                )
+            except Exception as e:
+                logger.error(f"🔴 Unexpected hashing error for {user_data.email}: {type(e).__name__}: {str(e)}")
+                logger.error("Full traceback:", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Unable to process password"
                 )
             new_user = User(
                 email=user_data.email,
