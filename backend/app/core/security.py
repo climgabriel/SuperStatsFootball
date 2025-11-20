@@ -3,11 +3,23 @@ from typing import Optional, Dict, Any, Tuple
 from jose import JWTError, jwt
 import hashlib
 import hmac
+import types
+import bcrypt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from .config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# The Rust bcrypt package (v4+) no longer exposes __about__.__version__,
+# which passlib tries to read. Patch it in to avoid noisy warnings.
+if not hasattr(bcrypt, "__about__"):
+    bcrypt.__about__ = types.SimpleNamespace(__version__=bcrypt.__version__)
+
+# Prefer bcrypt_sha256 to safely support passwords longer than 72 bytes, while
+# keeping plain bcrypt hashes verifiable for existing users.
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256", "bcrypt"],
+    deprecated="auto"
+)
 
 
 def _legacy_hash(password: str) -> str:

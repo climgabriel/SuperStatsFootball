@@ -124,12 +124,22 @@ class APIFootballClient:
         """Get all available countries."""
         return await self._make_request("get_countries")
 
-    async def get_leagues(self, country_id: Optional[int] = None) -> List[Dict]:
+    async def get_leagues(
+        self,
+        country_id: Optional[int] = None,
+        season: Optional[int] = None
+    ) -> List[Dict]:
         """
         Get leagues, optionally filtered by country.
 
+        Notes:
+            The apiv3.apifootball.com API does not use season filtering, but we
+            accept the parameter for backward compatibility with callers that
+            still supply it.
+
         Args:
             country_id: Filter by country ID
+            season: Ignored (kept for compatibility)
 
         Returns:
             List of league data
@@ -140,12 +150,17 @@ class APIFootballClient:
 
         return await self._make_request("get_leagues", params)
 
-    async def get_teams(self, league_id: int) -> List[Dict]:
+    async def get_teams(
+        self,
+        league_id: int,
+        season: Optional[int] = None
+    ) -> List[Dict]:
         """
         Get teams in a league.
 
         Args:
             league_id: League ID
+            season: Ignored (kept for compatibility)
 
         Returns:
             List of team data with full rosters
@@ -173,6 +188,7 @@ class APIFootballClient:
         date_to: Optional[str] = None,
         team_id: Optional[int] = None,
         match_id: Optional[int] = None,
+        season: Optional[int] = None,
         match_live: bool = False
     ) -> List[Dict]:
         """
@@ -184,6 +200,7 @@ class APIFootballClient:
             date_to: End date (yyyy-mm-dd)
             team_id: Filter by team
             match_id: Get specific match
+            season: Ignored (kept for compatibility)
             match_live: Only get live matches
 
         Returns:
@@ -247,17 +264,19 @@ class APIFootballClient:
 
     async def get_odds(
         self,
+        match_id: Optional[int] = None,
+        bookmaker: Optional[int] = None,
         date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        match_id: Optional[int] = None
+        date_to: Optional[str] = None
     ) -> List[Dict]:
         """
         Get betting odds.
 
         Args:
+            match_id: Specific match ID
+            bookmaker: Optional bookmaker filter (if supported)
             date_from: Start date (yyyy-mm-dd)
             date_to: End date (yyyy-mm-dd)
-            match_id: Specific match ID
 
         Returns:
             Odds data from multiple bookmakers
@@ -266,12 +285,36 @@ class APIFootballClient:
 
         if match_id:
             params["match_id"] = match_id
+        if bookmaker:
+            params["bookmaker_id"] = bookmaker
         if date_from:
             params["from"] = date_from
         if date_to:
             params["to"] = date_to
 
         return await self._make_request("get_odds", params)
+
+    async def get_live_odds(
+        self,
+        match_id: Optional[int] = None,
+        bookmaker: Optional[int] = None
+    ) -> List[Dict]:
+        """
+        Get live betting odds (if available).
+        """
+        params = {}
+        if match_id:
+            params["match_id"] = match_id
+        if bookmaker:
+            params["bookmaker_id"] = bookmaker
+
+        return await self._make_request("get_live_odds", params)
+
+    async def get_bookmakers(self) -> List[Dict]:
+        """
+        Get list of bookmakers (used for filtering odds).
+        """
+        return await self._make_request("get_bookmakers")
 
     async def get_predictions(
         self,
