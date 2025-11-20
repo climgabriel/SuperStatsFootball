@@ -12,25 +12,18 @@ def validate_email(email: str) -> bool:
 
 def validate_password(password: str) -> tuple[bool, Optional[str]]:
     """
-    Validate password strength.
+    Validate password strength - Simple requirements.
     Returns (is_valid, error_message)
     """
     if len(password) < 8:
         return False, "Password must be at least 8 characters long"
 
-    # Bcrypt has a 72-byte limit
+    # Bcrypt has a 72-byte limit (MUST keep this)
     if len(password.encode('utf-8')) > 72:
         return False, "Password is too long (maximum 72 characters)"
 
-    if not re.search(r'[A-Z]', password):
-        return False, "Password must contain at least one uppercase letter"
-
-    if not re.search(r'[a-z]', password):
-        return False, "Password must contain at least one lowercase letter"
-
-    if not re.search(r'\d', password):
-        return False, "Password must contain at least one digit"
-
+    # Simple validation - only length matters
+    # No complexity requirements (uppercase, lowercase, digits, special chars)
     return True, None
 
 
