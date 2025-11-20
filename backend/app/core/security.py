@@ -3,9 +3,16 @@ from typing import Optional, Dict, Any, Tuple
 from jose import JWTError, jwt
 import hashlib
 import hmac
+import types
+import bcrypt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from .config import settings
+
+# The Rust bcrypt package (v4+) no longer exposes __about__.__version__,
+# which passlib tries to read. Patch it in to avoid noisy warnings.
+if not hasattr(bcrypt, "__about__"):
+    bcrypt.__about__ = types.SimpleNamespace(__version__=bcrypt.__version__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -39,6 +46,9 @@ def verify_password(plain_password: str, hashed_password: str) -> Tuple[bool, bo
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt."""
+    if len(password.encode("utf-8")) > 72:
+        # Passlib/bcrypt will raise, but this keeps the error controlled
+        raise ValueError("Password must be 72 bytes or less for bcrypt hashing")
     return pwd_context.hash(password)
 
 

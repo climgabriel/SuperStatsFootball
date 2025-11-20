@@ -48,7 +48,14 @@ class AuthService:
 
             # Create new user
             logger.info(f"Creating new user: {user_data.email}")
-            hashed_password = get_password_hash(user_data.password)
+            try:
+                hashed_password = get_password_hash(user_data.password)
+            except ValueError as e:
+                logger.warning(f"❌ Password rejected for {user_data.email}: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Password must be 72 characters or less"
+                )
             new_user = User(
                 email=user_data.email,
                 password_hash=hashed_password,
