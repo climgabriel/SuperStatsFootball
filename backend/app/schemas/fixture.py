@@ -13,6 +13,9 @@ class FixtureScoreBase(BaseModel):
     home_penalty: Optional[int] = None
     away_penalty: Optional[int] = None
 
+    class Config:
+        from_attributes = True
+
 
 class FixtureStatBase(BaseModel):
     team_id: int
@@ -33,6 +36,9 @@ class FixtureStatBase(BaseModel):
     passes_accurate: Optional[int] = None
     passes_percentage: Optional[int] = None
     expected_goals: Optional[float] = None
+
+    class Config:
+        from_attributes = True
 
 
 class FixtureBase(BaseModel):
